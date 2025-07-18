@@ -21,7 +21,7 @@ metaphlan_index       = 'mpa_vJun23_CHOCOPhlAnSGB_202403'
 metaphlan_version     = '4.1.1'
 phylophlan_db_version = 'Jun23'
 motus_version         = '3.1.0'
-gtdb_release_number   = '220'
+gtdb_release_number   = '226'
 mmseqs_tax_db         = 'GTDB'
 metabuli_tax_db       = 'GTDB'
 
