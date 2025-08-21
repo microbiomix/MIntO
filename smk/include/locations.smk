@@ -36,7 +36,7 @@ def get_qc2_output_location(omics):
 ########################################
 # Get a sorted list of runs for a sample
 ########################################
-def get_runs_for_sample(wd, omics, sample, caller):
+def get_runs_for_sample(wd, omics, sample, caller, seq_platform='ILLUMINA'):
 
     # If it is a merged_illumina_sample, then it will not exist until the last step.
     # Just return itself so that it is created after last step is done.
@@ -66,13 +66,15 @@ def get_runs_for_sample(wd, omics, sample, caller):
             runs = list()
             for f in os.scandir(sample_dir):
                 if f.is_file():
-                    if f.name.endswith('.1.fq.gz') or f.name.endswith('_1.fq.gz'):
+                    if seq_platform=='ILLUMINA' and (f.name.endswith('.1.fq.gz') or f.name.endswith('_1.fq.gz')):
                         runs.append(re.sub("[\._]1\.fq\.gz", "", os.path.basename(f)))
+                    elif seq_platform=='NANOPORE' and f.name.endswith('.nanopore.fq.gz'):
+                        runs.append(re.sub("\.nanopore\.fq\.gz", "", os.path.basename(f)))
             runs = sorted(runs)
             if len(runs) > 0:
                 break
             else:
-                print(f"WARNING: Cannot find runs for sample={sample} in dir={sample_dir}")
+                print(f"WARNING: Cannot find runs for sample={sample}; tech={seq_platform} in dir={sample_dir}")
 
     #print(runs)
     if len(runs) == 0:
