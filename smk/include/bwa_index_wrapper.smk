@@ -106,6 +106,41 @@ rule BWA_index_in_place:
         ) >& {log}
         """
 
+# Memory requirements:
+# --------------------
+# Baseline    : 5 GB
+# Size-based  : 4 byte per byte file size (4x4=16 if gzipped)
+# New attempts: +20 GB each time
+rule minimap2_index_in_place:
+    input:
+        fasta="{somewhere}/{something}.{fasta}"
+    output:
+        mmi="{somewhere}/minimap2_index/{something}.{fasta}.mmi",
+    log:
+        "{somewhere}/minimap2_index/minimap2_index.{something}.{fasta}.log"
+    wildcard_constraints:
+        fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
+        something = r'[^/]+'
+    shadow:
+        "minimal"
+    resources:
+        mem = lambda wildcards, input, attempt: 5 + int((16 if input.fasta.endswith('.gz') else 4)*(os.path.getsize(input.fasta) if os.path.exists(input.fasta) else 1048576)/1e9) + 20*(attempt-1),
+    threads: 4
+    conda:
+        config["minto_dir"]+"/envs/MIntO_base.yml" #minimap2
+    shell:
+        """
+        outdir=$(dirname {output.mmi})
+        outfile=$(basename {output.mmi})
+        time (
+            minimap2 -t {threads} -d $outfile {input.fasta}
+            echo "NODE: $(hostname)"
+            echo "SENDING:"
+            echo "$(pwd)/$outfile --> $outdir"
+            rsync -av --itemize-changes $outfile $outdir/
+        ) >& {log}
+        """
+
 ####################################################################
 # If 'BWA_index_local/*' is requested, then distribute to all nodes
 ####################################################################
@@ -122,19 +157,29 @@ if CLUSTER_NODES is not None:
         raise Exception(f"MIntO error: CLUSTER_WORKLOAD_MANAGER and CLUSTER_LOCAL_DIR must be defined, if CLUSTER_NODES is defined")
 
     # If the index files exist, create a clustersync file to register a node
-    rule prepare_index_files_for_syncing:
+    rule prepare_index_files_for_syncing_bwa2:
         localrule: True
         input:
-            "{somewhere}/BWA_index/{something}.{fasta}.0123",
-            "{somewhere}/BWA_index/{something}.{fasta}.amb",
-            "{somewhere}/BWA_index/{something}.{fasta}.ann",
-            "{somewhere}/BWA_index/{something}.{fasta}.bwt.2bit.64",
-            "{somewhere}/BWA_index/{something}.{fasta}.pac",
+            "{somewhere}/{mapper}_index/{something}.{fasta}.0123",
+            "{somewhere}/{mapper}_index/{something}.{fasta}.amb",
+            "{somewhere}/{mapper}_index/{something}.{fasta}.ann",
+            "{somewhere}/{mapper}_index/{something}.{fasta}.bwt.2bit.64",
+            "{somewhere}/{mapper}_index/{something}.{fasta}.pac",
         output:
-            touch("{somewhere}/BWA_index/{something}.{fasta}.clustersync/{node}")
+            touch("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}")
         log:
-            "{somewhere}/BWA_index/sync.{something}.{fasta}.{node}.log"
+            "{somewhere}/{mapper}_index/sync.{something}.{fasta}.{node}.log"
         wildcard_constraints:
+            mapper    = r'BWA',
+            node      = '|'.join(CLUSTER_NODES),
+            fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
+            something = r'[^/]+'
+
+    use rule prepare_index_files_for_syncing_bwa2 as prepare_index_files_for_syncing_minimap2 with:
+        input:
+            "{somewhere}/{mapper}_index/{something}.{fasta}.mmi",
+        wildcard_constraints:
+            mapper    = r'minimap2',
             node      = '|'.join(CLUSTER_NODES),
             fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
             something = r'[^/]+'
@@ -154,48 +199,54 @@ if CLUSTER_NODES is not None:
     # If a node is registered with clustersync file, then synch it to that node and update synch-done status
     rule rsync_index_files_to_local_dir:
         input:
-            "{somefasta}.clustersync/{node}"
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}"
         output:
-            temp("{somefasta}.clustersync/{node}.synched")
+            temp("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.synched")
         log:
-            "{somefasta}.clustersync/{node}.synch.log"
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.synch.log"
+        params:
+            ext_csv = lambda wildcards: "{0123,amb,ann,bwt.2bit.64,pac}" if wildcards.mapper=='BWA' else 'mmi'
         resources:
             mem = 2,
             qsub_args = lambda wildcards: get_node_request_argument(wildcards.node, CLUSTER_WORKLOAD_MANAGER)
         wildcard_constraints:
+            mapper    = r'BWA|minimap2',
             node = '|'.join(CLUSTER_NODES)
         shell:
             """
-            path=$(dirname {wildcards.somefasta})
+            fname="{wildcards.somewhere}/{wildcards.mapper}_index/{wildcards.something}.{wildcards.fasta}"
+            path=$(dirname $fname)
             actual_node=$(hostname --short)
             umask 002 && mkdir -p {CLUSTER_LOCAL_DIR}/$path
             time (
                 echo "TARGET NODE: {wildcards.node}"
                 echo "ACTUAL NODE: $actual_node"
-                echo "SYNC'N FILE: {wildcards.somefasta}.* --> {CLUSTER_LOCAL_DIR}/$path/"
-                flock --exclusive --nonblock {CLUSTER_LOCAL_DIR}/{wildcards.somefasta}.synch.lock rsync -av --itemize-changes {wildcards.somefasta}.{{0123,amb,ann,bwt.2bit.64,pac}} {CLUSTER_LOCAL_DIR}/$path/ && touch {wildcards.somefasta}.clustersync/${{actual_node}}.synched
+                echo "SYNC'N FILE: $fname.* --> {CLUSTER_LOCAL_DIR}/$path/"
+                flock --exclusive --nonblock {CLUSTER_LOCAL_DIR}/$fname.synch.lock rsync -av --itemize-changes $fname.{params.ext_csv} {CLUSTER_LOCAL_DIR}/$path/ && touch $fname.clustersync/${{actual_node}}.synched
                 echo " DONE"
             ) >& {log}
             """
 
     # If synch-done status is available for all nodes, then symlink an NFS location to index files on local disk
-    rule symlink_local_index_files_to_target:
+    rule symlink_local_bwa2_index_files_to_target:
         localrule: True
         input:
-            lambda wildcards: expand("{somewhere}/BWA_index/{something}.{fasta}.clustersync/{node}.synched",
+            lambda wildcards: expand("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.synched",
                                         somewhere=wildcards.somewhere,
                                         something=wildcards.something,
+                                        mapper=wildcards.mapper,
                                         fasta=wildcards.fasta,
                                         node=CLUSTER_NODES)
         output:
-            "{somewhere}/BWA_index_local/{something}.{fasta}.0123",
-            "{somewhere}/BWA_index_local/{something}.{fasta}.amb",
-            "{somewhere}/BWA_index_local/{something}.{fasta}.ann",
-            "{somewhere}/BWA_index_local/{something}.{fasta}.bwt.2bit.64",
-            "{somewhere}/BWA_index_local/{something}.{fasta}.pac",
+            "{somewhere}/{mapper}_index_local/{something}.{fasta}.0123",
+            "{somewhere}/{mapper}_index_local/{something}.{fasta}.amb",
+            "{somewhere}/{mapper}_index_local/{something}.{fasta}.ann",
+            "{somewhere}/{mapper}_index_local/{something}.{fasta}.bwt.2bit.64",
+            "{somewhere}/{mapper}_index_local/{something}.{fasta}.pac",
         log:
-            "{somewhere}/BWA_index/symlink_local.{something}.{fasta}.log",
+            "{somewhere}/{mapper}_index/symlink_local.{something}.{fasta}.log",
         wildcard_constraints:
+            mapper    = r'BWA',
             fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
             something = r'[^/]+'
         shell:
@@ -203,43 +254,64 @@ if CLUSTER_NODES is not None:
             time (
                 echo "SYMLINKING:"
                 for out in {output}; do
-                    target=$(echo $out | sed "s/BWA_index_local/BWA_index/")
+                    target=$(echo $out | sed "s/{wildcards.mapper}_index_local/{wildcards.mapper}_index/")
                     echo "{CLUSTER_LOCAL_DIR}/$target --> $out"
                     ln -s --force {CLUSTER_LOCAL_DIR}/$target $out
                 done
             ) >& {log}
             """
 
-    # If a node is registered with clustersync file, then clean it on that node and update clean-done status
+    use rule symlink_local_bwa2_index_files_to_target as symlink_local_minimap2_index_files_to_target with:
+        localrule: True
+        output:
+            "{somewhere}/{mapper}_index_local/{something}.{fasta}.mmi",
+        wildcard_constraints:
+            mapper    = r'minimap2',
+            fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
+            something = r'[^/]+'
+
+    ####################################################################
+    # Clean-up index files from local disk
+    ####################################################################
+
+    # If a node is registered with clustersync file, then clean it on that node and update clean-done status.
+    # Don't be confused by two definitions of $fname. For the "sh -c ''" construct, it needs redefinition.
     rule clean_index_files_in_local_dir:
         input:
-            "{somefasta}.clustersync/{node}"
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}"
         output:
-            temp("{somefasta}.clustersync/{node}.cleaned")
+            temp("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.cleaned")
         log:
-            "{somefasta}.clustersync/{node}.clean.log"
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.clean.log"
+        params:
+            ext_list = lambda wildcards: "0123 amb ann bwt.2bit.64 pac" if wildcards.mapper=='BWA' else 'mmi'
         resources:
             mem = 2,
             qsub_args = lambda wildcards: get_node_request_argument(wildcards.node, CLUSTER_WORKLOAD_MANAGER)
         wildcard_constraints:
+            mapper    = r'BWA|minimap2',
             node = '|'.join(CLUSTER_NODES)
         shell:
             """
             time (
-                flock --exclusive --nonblock {CLUSTER_LOCAL_DIR}/{wildcards.somefasta}.clean.lock sh -c '
+                fname="{wildcards.somewhere}/{wildcards.mapper}_index/{wildcards.something}.{wildcards.fasta}"
+                flock --exclusive --nonblock {CLUSTER_LOCAL_DIR}/$fname.clean.lock sh -c '
+                    fname="{wildcards.somewhere}/{wildcards.mapper}_index/{wildcards.something}.{wildcards.fasta}"
                     actual_node=$(hostname --short)
                     echo "NODE - TARGET: {wildcards.node}"
                     echo "NODE - ACTUAL: $actual_node"
-                    echo "CLEANING FILE: {CLUSTER_LOCAL_DIR}/{wildcards.somefasta}.*"
-                    if [ -f "{CLUSTER_LOCAL_DIR}/{wildcards.somefasta}.0123" ]; then
-                        echo -n "  Index files found; deleting: "
-                        rm {CLUSTER_LOCAL_DIR}/{wildcards.somefasta}.{{0123,amb,ann,bwt.2bit.64,pac}} && echo -n "DONE"
-                        echo ""
-                    else
-                        echo "  WARNING: Index files NOT found; doing nothing"
-                    fi
-                    echo "  Touching flag: {wildcards.somefasta}.clustersync/$actual_node.cleaned"
-                    touch {wildcards.somefasta}.clustersync/$actual_node.cleaned
+                    echo "CLEANING FILE: {CLUSTER_LOCAL_DIR}/$fname.*"
+                    for ext in {params.ext_list}; do
+                        if [ -f "{CLUSTER_LOCAL_DIR}/$fname.$ext" ]; then
+                            echo -n "  Index file $fname.$ext found; deleting: "
+                            rm {CLUSTER_LOCAL_DIR}/$fname.$ext && echo -n "DONE"
+                            echo ""
+                        else
+                            echo "  WARNING: Index file $fname.$ext NOT found; doing nothing"
+                        fi
+                    done
+                    echo "  Touching flag: $fname.clustersync/$actual_node.cleaned"
+                    touch $fname.clustersync/$actual_node.cleaned
                 '
                 echo " DONE"
             ) >& {log}
@@ -255,24 +327,26 @@ if CLUSTER_NODES is not None:
     rule check_index_files_are_cleaned:
         localrule: True
         input:
-            status = lambda wildcards: expand("{somewhere}/BWA_index/{something}.{fasta}.clustersync/{node}.cleaned",
+            status = lambda wildcards: expand("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.cleaned",
                                             somewhere=wildcards.somewhere,
+                                            mapper=wildcards.mapper,
                                             something=wildcards.something,
                                             fasta=wildcards.fasta,
                                             node=CLUSTER_NODES)
         output:
-            "{somewhere}/BWA_index/{something}.{fasta}.clustersync/cleaning.done",
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/cleaning.done",
         wildcard_constraints:
+            mapper    = r'BWA|minimap2',
             fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
             something = r'[^/]+'
         shell:
             """
             # Delete symlinks
-            rm {wildcards.somewhere}/BWA_index_local/{wildcards.something}.{wildcards.fasta}.*
+            rm {wildcards.somewhere}/{wildcards.mapper}_index_local/{wildcards.something}.{wildcards.fasta}.*
 
             # Delete directory, if empty
-            if [ -z "$(ls -A '{wildcards.somewhere}/BWA_index_local')" ]; then
-                rmdir {wildcards.somewhere}/BWA_index_local/
+            if [ -z "$(ls -A '{wildcards.somewhere}/{wildcards.mapper}_index_local')" ]; then
+                rmdir {wildcards.somewhere}/{wildcards.mapper}_index_local/
             fi
 
             # Touch output
