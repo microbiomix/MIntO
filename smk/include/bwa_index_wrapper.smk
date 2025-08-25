@@ -276,13 +276,17 @@ if CLUSTER_NODES is not None:
 
     # If a node is registered with clustersync file, then clean it on that node and update clean-done status.
     # Don't be confused by two definitions of $fname. For the "sh -c ''" construct, it needs redefinition.
+    # In the following two rules, 'touch' does not use rule output name shortcuts,
+    # since we want the file with "actual" node name touched. Otherwise, node X can touch the file for node Y,
+    # which completely misses the point.
+
     rule clean_index_files_in_local_dir:
         input:
             "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}"
         output:
-            temp("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.cleaned")
+            temp("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.files.cleaned")
         log:
-            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.clean.log"
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.files.clean.log"
         params:
             ext_list = lambda wildcards: "0123 amb ann bwt.2bit.64 pac" if wildcards.mapper=='BWA' else 'mmi'
         resources:
@@ -310,10 +314,46 @@ if CLUSTER_NODES is not None:
                             echo "  WARNING: Index file $fname.$ext NOT found; doing nothing"
                         fi
                     done
-                    echo "  Touching flag: $fname.clustersync/$actual_node.cleaned"
-                    touch $fname.clustersync/$actual_node.cleaned
+                    echo "  Touching flag: $fname.clustersync/$actual_node.files.cleaned"
+                    touch $fname.clustersync/$actual_node.files.cleaned
                 '
                 echo " DONE"
+            ) >& {log}
+            """
+
+    rule clean_lock_files_in_local_dir:
+        input:
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.files.cleaned"
+        output:
+            temp("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.lock.cleaned")
+        log:
+            "{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.lock.clean.log"
+        resources:
+            mem = 2,
+            qsub_args = lambda wildcards: get_node_request_argument(wildcards.node, CLUSTER_WORKLOAD_MANAGER)
+        wildcard_constraints:
+            mapper    = r'BWA|minimap2',
+            node = '|'.join(CLUSTER_NODES)
+        shell:
+            """
+            time (
+                fname="{wildcards.somewhere}/{wildcards.mapper}_index/{wildcards.something}.{wildcards.fasta}"
+                actual_node=$(hostname --short)
+                echo "NODE - TARGET: {wildcards.node}"
+                echo "NODE - ACTUAL: $actual_node"
+                for file in "{CLUSTER_LOCAL_DIR}/$fname.synch.lock" "{CLUSTER_LOCAL_DIR}/$fname.clean.lock"; do
+                    if [ -f "$file" ]; then
+                        echo "CLEANING FILE: $file"
+                        if lsof "$file" > /dev/null 2>&1; then
+                            echo "  Lock file is in use"
+                        else
+                            echo "  No processes holding the lock"
+                            rm -f $file
+                        fi
+                    fi
+                done
+                echo "  Touching flag: $fname.clustersync/$actual_node.lock.cleaned"
+                touch $fname.clustersync/$actual_node.lock.cleaned
             ) >& {log}
             """
 
@@ -327,7 +367,7 @@ if CLUSTER_NODES is not None:
     rule check_index_files_are_cleaned:
         localrule: True
         input:
-            status = lambda wildcards: expand("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.cleaned",
+            status = lambda wildcards: expand("{somewhere}/{mapper}_index/{something}.{fasta}.clustersync/{node}.lock.cleaned",
                                             somewhere=wildcards.somewhere,
                                             mapper=wildcards.mapper,
                                             something=wildcards.something,
