@@ -28,7 +28,7 @@ use rule QC_0_base, QC_0_rpkg from print_versions as version_*
 
 snakefile_name = print_versions.get_smk_filename()
 
-raw_dir              = validate_required_key(config, 'raw_reads_dir')
+raw_dir              = validate_required_key(config, 'ILLUMINA_raw_reads_dir')
 perc_remaining_reads = validate_required_key(config, 'perc_remaining_reads')
 
 FASTP_threads        = validate_required_key(config, 'FASTP_threads')
@@ -84,13 +84,13 @@ def make_dict(keys, values):
 
     return dict(zip(keys, values))
 
-# Make list of illumina samples, if ILLUMINA in config
+# Make list of illumina samples, if ILLUMINA_SAMPLES in config
 ilmn_samples = list()
 ilmn_samples_organisation = None
 ilmn_runs_df = None
 sample2folder = dict()
 
-if (x := validate_required_key(config, 'ILLUMINA')):
+if (x := validate_required_key(config, 'ILLUMINA_SAMPLES')):
 
     # listed samples
     if isinstance(x, list):
@@ -130,7 +130,7 @@ if (x := validate_required_key(config, 'ILLUMINA')):
             if 'sample' not in md_df.columns:
                 raise Exception(f"ERROR in {config_path}: 'sample' column does not exist in metadata or runs sheet. Please fix!")
             if not col_name in md_df.columns:
-                raise Exception(f"ERROR in {config_path}: column name specified for ILLUMINA does not exist in metadata or runs sheet. Please fix!")
+                raise Exception(f"ERROR in {config_path}: column name specified for ILLUMINA_SAMPLES does not exist in metadata or runs sheet. Please fix!")
 
             sample_list = md_df['sample'].to_list()
             folder_list = md_df[col_name].to_list()
@@ -491,7 +491,7 @@ METADATA: {metadata}
 # Read length filtering
 #########################
 
-READ_minlen: $(cat {input.cutoff_file})
+ILLUMINA_READ_minlen: $(cat {input.cutoff_file})
 
 #########################
 # Host genome filtering
@@ -588,9 +588,9 @@ COAS_factor:
 ######################
 # Optionally, do you want to merge replicates or make pseudo samples
 # E.g:
-# MERGE_ILLUMINA_SAMPLES:
-#  sample1: rep1a+rep1b+rep1c
-#  sample2: rep2a+rep2b+rep2c
+# ILLUMINA_MERGE_SAMPLES:
+#  - sample1=rep1a+rep1b+rep1c
+#  - sample2=rep2a+rep2b+rep2c
 #
 # The above directive will make 2 new composite or pseudo samples at the end of QC_2.
 # Imagine you had triplicates for sample1 named as rep1a, rep1b and rep1c.
@@ -609,14 +609,14 @@ COAS_factor:
 # rep2a, rep2b, rep2c, sample2 from the beginning.
 ######################
 
-#MERGE_ILLUMINA_SAMPLES:
+#ILLUMINA_MERGE_SAMPLES:
 
 
 ######################
 # Input data
 ######################
 
-# ILLUMINA section:
+# ILLUMINA_SAMPLES section:
 # -----------------
 # List of illumina samples that will be filtered by read length.
 #
@@ -624,7 +624,7 @@ COAS_factor:
 # - I1
 # - I2
 #
-ILLUMINA:
+ILLUMINA_SAMPLES:
 $(for i in {ilmn_samples}; do echo "- '$i'"; done)
 ___EOF___
 

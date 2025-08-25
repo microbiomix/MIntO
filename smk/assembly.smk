@@ -38,8 +38,8 @@ merged_illumina_samples = dict()
 # Register composite samples
 ##############################################
 
-# Make list of illumina coassemblies, if MERGE_ILLUMINA_SAMPLES in config
-if (x := validate_optional_key(config, 'MERGE_ILLUMINA_SAMPLES')):
+# Make list of illumina coassemblies, if ILLUMINA_MERGE_SAMPLES in config
+if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
     for m in x:
         merged_illumina_samples.append(m)
 
@@ -47,8 +47,8 @@ if (x := validate_optional_key(config, 'MERGE_ILLUMINA_SAMPLES')):
 # Get sample list
 ##############################################
 
-# Make list of illumina samples, if ILLUMINA in config
-if (x := validate_optional_key(config, 'ILLUMINA')):
+# Make list of illumina samples, if ILLUMINA_SAMPLES in config
+if (x := validate_optional_key(config, 'ILLUMINA_SAMPLES')):
     check_input_directory(x, locations = ['6-corrected', '5-corrected-runs', get_qc2_output_location(omics)])
     ilmn_samples = x
 
@@ -58,8 +58,8 @@ if (x := validate_optional_key(config, 'ILLUMINA')):
             ilmn_samples.remove(i)
 
 
-# Make list of nanopore samples, if NANOPORE in config
-if (x := validate_optional_key(config, 'NANOPORE')):
+# Make list of nanopore samples, if NANOPORE_SAMPLES in config
+if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
     check_input_directory(x, locations = ['6-corrected', get_qc2_output_location(omics)])
     nanopore_samples = x
 
@@ -206,7 +206,7 @@ rule all:
 # Correct Illumina reads using SPAdes' spadeshammer
 ###############################################################################################
 
-def get_hq_fastq_files(wildcards):
+def get_hq_fastq_files_illumina(wildcards):
     return(expand("{wd}/{omics}/{location}/{illumina}/{run}.{pair}.fq.gz",
                 wd = wildcards.wd,
                 omics = wildcards.omics,
@@ -217,7 +217,7 @@ def get_hq_fastq_files(wildcards):
 
 rule correct_spadeshammer:
     input:
-        reads=get_hq_fastq_files
+        reads=get_hq_fastq_files_illumina
     output:
         fwd=temp("{wd}/{omics}/5-corrected-runs/{illumina}/{run}.1.fq.gz"),
         rev=temp("{wd}/{omics}/5-corrected-runs/{illumina}/{run}.2.fq.gz"),
@@ -245,26 +245,34 @@ rule correct_spadeshammer:
         """
 
 def get_corrected_runs_for_sample(wildcards):
-    if wildcards.illumina in merged_illumina_samples:
-        files = list()
-        for r in merged_illumina_samples[wildcards.illumina].split('+'):
-            rep = r.strip()
-            files += expand("{wd}/{omics}/5-corrected-runs/{rep}/{run}.{pair}.fq.gz",
+    if wildcards.pair == 'nanopore':
+        files = expand("{wd}/{omics}/4-hostfree/{nanopore}/{run}.{pair}.fq.gz",
                                     wd = wildcards.wd,
                                     omics = wildcards.omics,
-                                    rep = rep,
-                                    run = get_runs_for_sample(wildcards.wd, wildcards.omics, rep, caller='assembly'),
+                                    nanopore = wildcards.nanopore,
+                                    run = get_runs_for_sample(wildcards.wd, wildcards.omics, wildcards.nanopore, caller='assembly', seq_platform='NANOPORE'),
                                     pair = wildcards.pair)
     else:
-        files = expand("{wd}/{omics}/5-corrected-runs/{illumina}/{run}.{pair}.fq.gz",
-                                    wd = wildcards.wd,
-                                    omics = wildcards.omics,
-                                    illumina = wildcards.illumina,
-                                    run = get_runs_for_sample(wildcards.wd, wildcards.omics, wildcards.illumina, caller='assembly'),
-                                    pair = wildcards.pair)
+        if wildcards.illumina in merged_illumina_samples:
+            files = list()
+            for r in merged_illumina_samples[wildcards.illumina].split('+'):
+                rep = r.strip()
+                files += expand("{wd}/{omics}/5-corrected-runs/{rep}/{run}.{pair}.fq.gz",
+                                        wd = wildcards.wd,
+                                        omics = wildcards.omics,
+                                        rep = rep,
+                                        run = get_runs_for_sample(wildcards.wd, wildcards.omics, rep, caller='assembly'),
+                                        pair = wildcards.pair)
+        else:
+            files = expand("{wd}/{omics}/5-corrected-runs/{illumina}/{run}.{pair}.fq.gz",
+                                        wd = wildcards.wd,
+                                        omics = wildcards.omics,
+                                        illumina = wildcards.illumina,
+                                        run = get_runs_for_sample(wildcards.wd, wildcards.omics, wildcards.illumina, caller='assembly', seq_platform='ILLUMINA'),
+                                        pair = wildcards.pair)
     return(files)
 
-rule merge_runs:
+rule merge_runs_illumina:
     localrule: True
     input:
         files=get_corrected_runs_for_sample
@@ -286,6 +294,12 @@ rule merge_runs:
             ln --force {input[0]} {output}
         fi
         """
+
+use rule merge_runs_illumina as merge_runs_nanopore with:
+    output:
+        combined="{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.{pair}.fq.gz"
+    wildcard_constraints:
+        pair="nanopore"
 
 ruleorder: hybrid_assembly_metaspades > illumina_assembly_metaspades
 

@@ -35,10 +35,10 @@ snakefile_name = print_versions.get_smk_filename()
 # Get sample list
 ##############################################
 
-# Make list of illumina samples, if ILLUMINA in config
+# Make list of illumina samples, if ILLUMINA_SAMPLES in config
 
 ilmn_samples = list()
-if (x := validate_required_key(config, 'ILLUMINA')):
+if (x := validate_required_key(config, 'ILLUMINA_SAMPLES')):
     check_input_directory(x, locations = ['7-assembly'])
     ilmn_samples = x
 
@@ -105,8 +105,8 @@ if max_job_ram_gb < 10:
 MIN_FASTA_LENGTH = validate_required_key(config, 'MIN_FASTA_LENGTH')
 
 spades_contigs_or_scaffolds = "scaffolds"
-if (x := validate_optional_key(config, 'SPADES_CONTIGS_OR_SCAFFOLDS')):
-    check_allowed_values('SPADES_CONTIGS_OR_SCAFFOLDS', x, ('contigs', 'contig', 'scaffolds', 'scaffold'))
+if (x := validate_optional_key(config, 'METASPADES_CONTIGS_OR_SCAFFOLDS')):
+    check_allowed_values('METASPADES_CONTIGS_OR_SCAFFOLDS', x, ('contigs', 'contig', 'scaffolds', 'scaffold'))
     if not x.endswith('s'):
         x += 's'
     spades_contigs_or_scaffolds = x
@@ -133,14 +133,14 @@ local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 SCAFFOLDS_type = list()
 
 if ilmn_samples:
-    print(f"Found ILLUMINA in {config_path}.")
+    print(f"Found ILLUMINA_SAMPLES in {config_path}.")
     SCAFFOLDS_type.append('illumina_single')
 
-# Make list of nanopore samples, if NANOPORE in config
+# Make list of nanopore samples, if NANOPORE_SAMPLES in config
 
 nanopore_assemblies = list()
-if (x := validate_optional_key(config, 'NANOPORE')):
-    print(f"Found NANOPORE in {config_path}.")
+if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
+    print(f"Found NANOPORE_SAMPLES in {config_path}.")
     check_input_directory(x, locations = ['7-assembly'])
     nanopore_assemblies = x
     SCAFFOLDS_type.append('nanopore')

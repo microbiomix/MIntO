@@ -35,13 +35,14 @@ snakefile_name = print_versions.get_smk_filename()
 taxonomies_versioned = list()
 ilmn_samples = list()
 merged_illumina_samples = dict()
+nanopore_samples = list()
 
 ##############################################
 # Register composite samples
 ##############################################
 
-# Make list of illumina coassemblies, if MERGE_ILLUMINA_SAMPLES in config
-if (x := validate_optional_key(config, 'MERGE_ILLUMINA_SAMPLES')):
+# Make list of illumina coassemblies, if ILLUMINA_MERGE_SAMPLES in config
+if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
     for m in x:
         #print(" "+m)
         merged_illumina_samples.append(m)
@@ -50,8 +51,8 @@ if (x := validate_optional_key(config, 'MERGE_ILLUMINA_SAMPLES')):
 # Get sample list
 ##############################################
 
-# Make list of illumina samples, if ILLUMINA in config
-if (x := validate_optional_key(config, 'ILLUMINA')):
+# Make list of illumina samples, if ILLUMINA_SAMPLES in config
+if (x := validate_optional_key(config, 'ILLUMINA_SAMPLES')):
     check_input_directory(x, locations = ['5-1-sortmerna', '4-hostfree', '3-minlength', '1-trimmed'])
     ilmn_samples = x
 
@@ -70,6 +71,11 @@ for i in ilmn_samples:
     if i not in ilmn_reps_to_delete:
         nonredundant_ilmn_samples.append(i)
 
+# Make list of nanopore samples, if NANOPORE_SAMPLES in config
+if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
+    check_input_directory(x, locations = ['4-hostfree', '3-minlength', '1-trimmed'])
+    nanopore_samples = x
+
 ##############################################
 # Host genome filtering
 ##############################################
@@ -77,20 +83,37 @@ for i in ilmn_samples:
 host_genome_path = validate_required_key(config, 'PATH_host_genome')
 host_genome_name = validate_required_key(config, 'NAME_host_genome')
 
-if os.path.exists(f"{host_genome_path}/BWA_index/{host_genome_name}.pac"):
-    print(f"Host genome db {host_genome_path}/BWA_index/{host_genome_name} will be used")
-elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
-    print(f"Host genome sequence {host_genome_path}/{host_genome_name} will be used to create BWA db")
-else:
-    raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or BWA db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
+if len(ilmn_samples) > 0:
+    if os.path.exists(f"{host_genome_path}/BWA_index/{host_genome_name}.pac"):
+        print(f"Host genome db {host_genome_path}/BWA_index/{host_genome_name} will be used")
+    elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
+        print(f"Host genome sequence {host_genome_path}/{host_genome_name} will be used to create BWA db")
+    else:
+        raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or BWA db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
+
+if len(nanopore_samples) > 0:
+    if os.path.exists(f"{host_genome_path}/minimap2_index/{host_genome_name}.mmi"):
+        print(f"Host genome db {host_genome_path}/minimap2_index/{host_genome_name} will be used")
+    elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
+        print(f"Host genome sequence {host_genome_path}/{host_genome_name} will be used to create minimap2 db")
+    else:
+        raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or minimap2 db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
 
 ##############################################
 # Minimum read-length trimming
 ##############################################
 
-read_min_len = validate_required_key(config, 'READ_minlen')
-if read_min_len < 50:
-    read_min_len = 50
+# Short reads
+read_minlen_illumina = validate_required_key(config, 'ILLUMINA_READ_minlen')
+if read_minlen_illumina < 50:
+    read_minlen_illumina = 50
+
+# ONT reads
+read_minlen_nanopore = 500
+if (x := validate_optional_key(config, 'NANOPORE_READ_minlen')):
+    read_minlen_nanopore = x
+    if read_minlen_nanopore < 500:
+        read_minlen_nanopore = 500
 
 ##############################################
 # Host genome filtering
@@ -220,9 +243,17 @@ def smash_plot_output():
         return()
 
 def readcounts_output():
-    result = expand("{wd}/output/2-qc/{omics}.readcounts.txt",
-                    wd = working_dir,
-                    omics = omics)
+    result = list()
+    if len(ilmn_samples) > 0:
+        result.extend(expand("{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt",
+                        wd = working_dir,
+                        omics = omics)
+                     )
+    if len(nanopore_samples) > 0:
+        result.extend(expand("{wd}/output/2-qc/{omics}.NANOPORE.readcounts.txt",
+                        wd = working_dir,
+                        omics = omics)
+                     )
     return(result)
 
 def merged_sample_output():
@@ -261,24 +292,24 @@ rule all:
 
 # We use suffix fq.gz for "seqkit seq" output even though it outputs unzipped fq.
 # This is because the next step "seqkit pair" uses extension to decide whether to compress using pigz or not.
-rule qc2_length_filter:
+rule qc2_length_illumina:
     input:
         read_fw='{wd}/{omics}/1-trimmed/{sample}/{run}.1.fq.gz',
         read_rv='{wd}/{omics}/1-trimmed/{sample}/{run}.2.fq.gz',
     output:
         paired1=temp("{wd}/{omics}/3-minlength/{sample}/{run}.1.fq.gz"),
         paired2=temp("{wd}/{omics}/3-minlength/{sample}/{run}.2.fq.gz"),
-        summary="{wd}/{omics}/3-minlength/{sample}/{run}.trim.summary"
+        summary="{wd}/{omics}/3-minlength/{sample}/{run}.ILLUMINA.trim.summary"
     shadow:
         "minimal"
     params:
-        read_length_cutoff=read_min_len
+        read_length_cutoff = read_minlen_illumina
     log:
-        "{wd}/logs/{omics}/3-minlength/{sample}_{run}.log"
+        "{wd}/logs/{omics}/3-minlength/illumina_{sample}_{run}.log"
     resources:
         mem=20
     threads:
-        16
+        6
     conda:
         minto_dir + "/envs/MIntO_base.yml"
     shell:
@@ -294,6 +325,34 @@ rule qc2_length_filter:
         ) >& {log}
         """
 
+rule qc2_length_nanopore:
+    input:
+        ont="{wd}/{omics}/1-trimmed/{sample}/{run}.nanopore.fq.gz",
+    output:
+        ont="{wd}/{omics}/3-minlength/{sample}/{run}.nanopore.fq.gz",
+        summary="{wd}/{omics}/3-minlength/{sample}/{run}.NANOPORE.trim.summary"
+    shadow:
+        "minimal"
+    params:
+        read_length_cutoff = read_minlen_nanopore
+    log:
+        "{wd}/logs/{omics}/3-minlength/nanopore_{sample}_{run}.log"
+    resources:
+        mem=20
+    threads:
+        2
+    conda:
+        minto_dir + "/envs/MIntO_base.yml"
+    shell:
+        """
+        time (
+            filtlong --min_length {params.read_length_cutoff} --keep_percent 99 --length_weight 10 {input.ont} \
+                    | tee >(seqtk size - > {output.summary}) \
+                    | gzip > filt.fq.gz
+            rsync filt.fq.gz {output.ont}
+        ) >& {log}
+        """
+
 ###############################################################################################
 # Pre-processing of metaG and metaT data
 # Remove host genome sequences
@@ -301,6 +360,26 @@ rule qc2_length_filter:
 
 # Remove potential host-derived reads based on genome in "{host_genome_path}/{host_genome_name}".
 # Details of which index files are generated - in 'include/mapper_index_creation.smk'
+
+# For ONT:
+# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
+# Otherwise, return the original index files in project work_dir.
+
+def get_host_minimap2_index(wildcards):
+
+    # Where is the index file?
+    # exception if already on local disk
+    if CLUSTER_NODES != None and not host_genome_path.startswith("/scratch"):
+        index_location = 'minimap2_index_local'
+    else:
+        index_location = 'minimap2_index'
+
+    # Get the index file
+    files = f"{host_genome_path}/{index_location}/{host_genome_name}.mmi"
+
+    # Return them
+    return(files)
+
 # BWA mem memory is estimated as 3.1 bytes per base in database (regression: mem = 5.556e+09 + 3.011*input).
 
 # For metaG, 4-hostfree is the final QC2 output.
@@ -325,7 +404,7 @@ rule qc2_sba_mean_length:
             print(sba_mean_len, file = fp)
 
 # main rule: metaG - output is not temporary
-rule qc2_host_filter:
+rule qc2_host_filter_illumina:
     input:
         fasta      = f"{host_genome_path}/{host_genome_name}",
         pairead_fw = rules.qc2_length_filter.output.paired1,
@@ -385,12 +464,43 @@ rule qc2_host_filter:
         """
 
 # derived rule: metaT - output is temporary
-use rule qc2_host_filter as qc2_host_filter_metaT with:
+use rule qc2_host_filter_illumina as qc2_host_filter_illumina_metaT with:
     output:
-        host_free_fw=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz"),
-        host_free_rv=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz"),
+        host_free_fwd=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz"),
+        host_free_rev=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz"),
     wildcard_constraints:
         omics='metaT'
+
+# minimap2 mem memory is estimated as 1.2 bytes per base in database (quick check with ONT files).
+rule qc2_host_filter_nanopore:
+    input:
+        ont=rules.qc2_length_nanopore.output.ont,
+        mmi=get_host_minimap2_index
+    output:
+        host_free="{wd}/{omics}/4-hostfree/{sample}/{run}.nanopore.fq.gz",
+    shadow:
+        "minimal"
+    log:
+        "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome_minimap2.log"
+    wildcard_constraints:
+        omics='metaG'
+    resources:
+        mem = lambda wildcards, input, attempt: 10 + int(1.2*os.path.getsize(input.mmi[0])/1e9) + 10*(attempt-1)
+    threads:
+        bwa_threads
+    conda:
+        minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
+    shell:
+        """
+        time (
+                minimap2 -ax map-ont -t {threads} -v 3 {input.mmi} {input.ont} \
+                  | msamtools filter -S -l 300 --invert --keep_unmapped -bu - \
+                  | samtools fastq - \
+                  | gzip -c \
+                  > hostfree.fq.gz
+                rsync -a hostfree.fq.gz {output.host_free}
+        ) >& {log}
+        """
 
 ########################################
 # Get list of fwd/rev reads for this sample.
@@ -399,12 +509,17 @@ use rule qc2_host_filter as qc2_host_filter_metaT with:
 ########################################
 
 def get_postcleaning_fastq_names_one_end(wd, omics, sample, pair):
+    if pair == 'nanopore':
+        seq_platform = 'NANOPORE'
+    else:
+        seq_platform = 'ILLUMINA'
+
     return(expand("{wd}/{omics}/{location}/{sample}/{run}.{pair}.fq.gz",
                     wd       = wd,
                     omics    = omics,
                     location = get_qc2_output_location(omics),
                     sample   = sample,
-                    run      = get_runs_for_sample(wd, omics, sample, caller='QC_2'),
+                    run      = get_runs_for_sample(wd, omics, sample, caller='QC_2', seq_platform=seq_platform),
                     pair     = pair
                     )
             )
@@ -414,6 +529,9 @@ def get_postcleaning_fastq_names_fwd_only(wildcards):
 
 def get_postcleaning_fastq_names_rev_only(wildcards):
     return(get_postcleaning_fastq_names_one_end(wildcards.wd, wildcards.omics, wildcards.sample, pair='2'))
+
+def get_postcleaning_fastq_names_nanopore(wildcards):
+    return(get_postcleaning_fastq_names_one_end(wildcards.wd, wildcards.omics, wildcards.sample, pair='nanopore'))
 
 ###############################################################################################
 # Pre-processing of metaT data - rRNA filtering - only on metaT data
@@ -469,8 +587,8 @@ if omics == 'metaT':
 
     rule qc2_filter_rRNA:
         input:
-            host_free_fw=rules.qc2_host_filter.output.host_free_fw,
-            host_free_rv=rules.qc2_host_filter.output.host_free_rv,
+            host_free_fwd=rules.qc2_host_filter_illumina.output.host_free_fwd,
+            host_free_rev=rules.qc2_host_filter_illumina.output.host_free_rev,
             rRNA_db_index=ancient(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
         output:
             rRNA_out="{wd}/{omics}/5-1-sortmerna/{sample}/out/{run}.aligned.log",
@@ -501,7 +619,7 @@ if omics == 'metaT':
                             --ref {params.db_dir}/silva-bac-23s-id98.fasta \
                             --ref {params.db_dir}/silva-euk-18s-id95.fasta \
                             --ref {params.db_dir}/silva-euk-28s-id98.fasta \
-                            --reads {input.host_free_fw} --reads {input.host_free_rv}
+                            --reads {input.host_free_fwd} --reads {input.host_free_rev}
                 parallel --jobs {threads} <<__EOM__
     rsync -a out/other_fwd.fq.gz {output.rRNA_free_fw}
     rsync -a out/other_rev.fq.gz {output.rRNA_free_rv}
@@ -517,14 +635,15 @@ __EOM__
 rule minlength_readcounts:
     localrule: True
     input:
-        trim_summary=lambda wildcards: expand("{wd}/{omics}/3-minlength/{sample}/{run}.trim.summary",
+        trim_summary=lambda wildcards: expand("{wd}/{omics}/3-minlength/{sample}/{run}.{tech}.trim.summary",
                 wd     = wildcards.wd,
                 omics  = wildcards.omics,
                 sample = wildcards.sample,
-                run    = get_runs_for_sample(wildcards.wd, wildcards.omics, wildcards.sample, caller='QC_2')
+                run    = get_runs_for_sample(wildcards.wd, wildcards.omics, wildcards.sample, caller='QC_2', seq_platform=wildcards.tech),
+                tech   = wildcards.tech
                 )
     output:
-        minlen_rc=temp("{wd}/output/2-qc/{omics}.{sample}.1.minlength.txt")
+        minlen_rc=temp("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt")
     resources:
         mem = 1
     threads:
@@ -534,18 +653,21 @@ rule minlength_readcounts:
         for trim_summ_file in input.trim_summary:
             with open(trim_summ_file, "r") as fp:
                 for line in fp:
-                    if line.startswith("[INFO]"):
+                    if wildcards.tech == 'ILLUMINA' and line.startswith("[INFO]"):
                         if "paired-end reads saved to" in line:
                             tmp = line.split()
                             run_readcounts.append(int(tmp[1]))
+                    elif wildcards.tech == 'NANOPORE':
+                        tmp = line.split()
+                        run_readcounts.append(int(tmp[0]))
         with open(output.minlen_rc, "w") as of:
             print(sum(run_readcounts), file = of)
 
-rule postcleaning_readcounts:
+rule postcleaning_readcounts_illumina:
     input:
         fwd=get_postcleaning_fastq_names_fwd_only
     output:
-        rc_fwd=temp("{wd}/output/2-qc/{omics}.{sample}.1.postcleaning.txt")
+        rc_fwd=temp("{wd}/output/2-qc/{omics}.ILLUMINA.{sample}.postcleaning.txt")
     resources:
         mem = 1
     threads:
@@ -558,28 +680,38 @@ rule postcleaning_readcounts:
         echo $((${{LINENUM}} / 4)) > {output.rc_fwd}
         """
 
-rule aggregate_readcounts:
+use rule postcleaning_readcounts_illumina as postcleaning_readcounts_nanopore with:
+    input:
+        fwd=get_postcleaning_fastq_names_nanopore
+    output:
+        rc_fwd=temp("{wd}/output/2-qc/{omics}.NANOPORE.{sample}.postcleaning.txt")
+
+rule aggregate_readcounts_illumina:
     localrule: True
     input:
-        minlen_rc=expand("{wd}/output/2-qc/{omics}.{sample}.1.minlength.txt",
-            wd = working_dir,
-            omics = omics,
-            sample = nonredundant_ilmn_samples),
-        clean_rc=expand("{wd}/output/2-qc/{omics}.{sample}.1.postcleaning.txt",
-            wd = working_dir,
-            omics = omics,
-            sample = nonredundant_ilmn_samples)
+        minlen_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt",
+                                                wd = wildcards.wd,
+                                                omics = wildcards.omics,
+                                                tech = wildcards.tech,
+                                                sample = nonredundant_ilmn_samples),
+        clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
+                                                wd = wildcards.wd,
+                                                omics = wildcards.omics,
+                                                tech = wildcards.tech,
+                                                sample = nonredundant_ilmn_samples)
     output:
-        rc="{wd}/output/2-qc/{omics}.readcounts.txt"
+        rc="{wd}/output/2-qc/{omics}.{tech}.readcounts.txt"
+    wildcard_constraints:
+        tech='ILLUMINA'
     resources:
         mem = 1
     threads:
         2
     run:
         readcounts = []
-        for i, sampleid in enumerate(nonredundant_ilmn_samples):
-            with open(input.minlen_rc[i], "r") as ifile_minlen, \
-                 open(input.clean_rc[i], "r") as ifile_clean:
+        for minlen, clean in zip(input.minlen_rc, input.clean_rc):
+            with open(minlen, "r") as ifile_minlen, \
+                 open(clean, "r") as ifile_clean:
                 minlen_frags = int(ifile_minlen.readline())
                 clean_frags  = int(ifile_clean.readline())
                 rat = round(clean_frags / minlen_frags * 100, 2)
@@ -589,6 +721,20 @@ rule aggregate_readcounts:
             for row in readcounts:
                 print(row, file = fp)
 
+use rule aggregate_readcounts_illumina as aggregate_readcounts_nanopore with:
+    input:
+        minlen_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt",
+                                                wd = wildcards.wd,
+                                                omics = wildcards.omics,
+                                                tech = wildcards.tech,
+                                                sample = nanopore_samples),
+        clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
+                                                wd = wildcards.wd,
+                                                omics = wildcards.omics,
+                                                tech = wildcards.tech,
+                                                sample = nanopore_samples)
+    wildcard_constraints:
+        tech='NANOPORE'
 
 ###############################################################################################
 # Create pseudo-samples that are created by merging multiple samples.
@@ -598,7 +744,7 @@ rule aggregate_readcounts:
 
 if merged_illumina_samples:
 
-    ruleorder: merge_fastqs_for_composite_samples > qc2_host_filter
+    ruleorder: merge_fastqs_for_composite_samples > qc2_host_filter_illumina
 
     if omics == 'metaT':
         ruleorder: merge_fastqs_for_composite_samples > qc2_filter_rRNA
@@ -614,7 +760,7 @@ if merged_illumina_samples:
         return(files)
 
     # Merge files for a given sample from all its reps
-    # Restrict it to only those appearing in MERGE_ILLUMINA_SAMPLES dict in config file
+    # Restrict it to only those appearing in ILLUMINA_MERGE_SAMPLES dict in config file
     rule merge_fastqs_for_composite_samples:
         localrule: True
         input:
@@ -1071,7 +1217,7 @@ METAFLYE_presets:
 ###############################
 
 # Whether to use contigs or scaffolds from SPAdes
-SPADES_CONTIGS_OR_SCAFFOLDS: contigs
+METASPADES_CONTIGS_OR_SCAFFOLDS: contigs
 
 # minimum contig/scaffold fasta length
 MIN_FASTA_LENGTH: 2500
@@ -1135,16 +1281,16 @@ LOCAL_DATABASE_CACHE_DIR: None
 #
 #HYBRID:
 
-# NANOPORE section:
+# NANOPORE_SAMPLES section:
 # -----------------
 # List of nanopore samples that will be assembled individually using MetaFlye.
 #
-#NANOPORE:
+#NANOPORE_SAMPLES:
 
 ######################
 # Optionally, do you want to merge replicates or make pseudo samples
 # E.g:
-# MERGE_ILLUMINA_SAMPLES:
+# ILLUMINA_MERGE_SAMPLES:
 #  sample1: rep1a+rep1b+rep1c
 #  sample2: rep2a+rep2b+rep2c
 #
@@ -1165,10 +1311,10 @@ LOCAL_DATABASE_CACHE_DIR: None
 # rep2a, rep2b, rep2c, sample2 from the beginning.
 ######################
 
-MERGE_ILLUMINA_SAMPLES:
+ILLUMINA_MERGE_SAMPLES:
 {params.merge_illumina_samples_directive}
 
-# ILLUMINA section:
+# ILLUMINA_SAMPLES section:
 # -----------------
 # List of illumina samples that will be assembled individually using MetaSPAdes.
 #
@@ -1176,7 +1322,7 @@ MERGE_ILLUMINA_SAMPLES:
 # - I1
 # - I2
 #
-ILLUMINA:
+ILLUMINA_SAMPLES:
 $(for i in {params.sample_list}; do echo "- '$i'"; done)
 
 ###############################
@@ -1341,7 +1487,7 @@ GTDB_TAXONOMY_VERSION: r226
 
 # Input data
 
-# ILLUMINA section:
+# ILLUMINA_SAMPLES section:
 # -----------------
 # List of illumina samples.
 #
@@ -1349,7 +1495,7 @@ GTDB_TAXONOMY_VERSION: r226
 # - I1
 # - I2
 #
-ILLUMINA:
+ILLUMINA_SAMPLES:
 $(for i in {params.sample_list}; do echo "- '$i'"; done)
 ___EOF___
 

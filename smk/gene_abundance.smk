@@ -35,7 +35,7 @@ plot_factor2     = validate_optional_key(config, 'PLOT_factor2')
 plot_time        = validate_optional_key(config, 'PLOT_time')
 MIN_mapped_reads = validate_required_key(config, 'MIN_mapped_reads')
 
-# Make list of illumina samples, if ILLUMINA in config
+# Make list of illumina samples, if ILLUMINA_SAMPLES in config
 
 # We prefer original non-error-corrected reads for profiling to preserve strain variation in population
 # If the original reads have been removed for whatever reasons (running out of space, may be?),
@@ -43,7 +43,7 @@ MIN_mapped_reads = validate_required_key(config, 'MIN_mapped_reads')
 # This priority and then looking for 6-corrected as last resort is implemented in get_fwd_files_only() and get_rev_files_only(), which then call get_final_fastq_one_end()
 
 ilmn_samples = list()
-if (x := validate_required_key(config, 'ILLUMINA')):
+if (x := validate_required_key(config, 'ILLUMINA_SAMPLES')):
     check_input_directory(x, locations = [get_qc2_output_location(omics), '6-corrected'])
     ilmn_samples = x
 

@@ -28,7 +28,7 @@ use rule QC_1_base, QC_1_rpkg from print_versions as version_*
 
 snakefile_name = print_versions.get_smk_filename()
 
-raw_dir              = validate_required_key(config, 'raw_reads_dir')
+raw_dir_ilmn         = validate_required_key(config, 'ILLUMINA_raw_reads_dir')
 perc_remaining_reads = validate_required_key(config, 'perc_remaining_reads')
 
 TRIMMOMATIC_threads  = validate_required_key(config, 'TRIMMOMATIC_threads')
@@ -64,29 +64,37 @@ ilmn_suffix = ["1.fq.gz", "2.fq.gz"]
 if (x := validate_optional_key(config, 'ILLUMINA_suffix')):
     ilmn_suffix = x
 
+nanopore_suffix = "nanopore.fq.gz"
+if (x := validate_optional_key(config, 'NANOPORE_suffix')):
+    nanopore_suffix = x
+
 def sampleid_valid_check(sampleid):
     if not sampleid.replace('_', '').isalnum():
         raise Exception(f"ERROR: {sampleid} contains non-alphanumeric or underscore characters.")
     else:
         return(True)
 
-def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder"):
+def sample_existence_check(top_raw_dir, sample_id, organisation_type = "folder", seq_platform = 'ILLUMINA'):
     if organisation_type == "folder":
         location = "{}/{}".format(top_raw_dir, sample_id)
         if os.path.exists(location):
-            if glob.glob("{}/{}/*[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])):
-                return(True)
+            if seq_platform.upper() == 'ILLUMINA':
+                if glob.glob("{}/{}/*[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])):
+                    return(True)
+            elif seq_platform.upper() == 'NANOPORE':
+                if glob.glob("{}/{}/*.{}".format(top_raw_dir, sample_id, nanopore_suffix)):
+                    return(True)
     else:
         sample_pattern = "{}/{}[.-_]{}".format(top_raw_dir, sample_id, ilmn_suffix[0])
         if glob.glob(sample_pattern):
             return(True)
     return(False)
 
-# Make list of illumina samples, if ILLUMINA in config
+# Make list of illumina samples, if ILLUMINA_SAMPLES in config
 ilmn_samples = list()
 ilmn_samples_organisation = "folder"
 ilmn_runs_df = None
-if (x := validate_required_key(config, 'ILLUMINA')):
+if (x := validate_required_key(config, 'ILLUMINA_SAMPLES')):
     # column_name specified option
     if isinstance(x, str):
         ilmn_samples_organisation = "bulk"
@@ -99,34 +107,45 @@ if (x := validate_required_key(config, 'ILLUMINA')):
                 if sampleid_valid_check(sampleid):
                     for runid in ilmn_runs_df.loc[ilmn_runs_df['sample'] == sampleid]['run'].to_list():
                         #print(sampleid, runid)
-                        if sample_existence_check(raw_dir, runid, ilmn_samples_organisation):
+                        if sample_existence_check(raw_dir_ilmn, runid, ilmn_samples_organisation):
                             if sampleid not in ilmn_samples:
                                 ilmn_samples.append(sampleid)
                         else:
-                            raise Exception(f"ERROR: {runid} not in bulk data folder {raw_dir}")
+                            raise Exception(f"ERROR: {runid} not in bulk data folder {raw_dir_ilmn}")
         else:
             # column name in metadata sheet
             col_name = x
             md_df = pandas.read_table(metadata)
             if not col_name in md_df.columns:
-                raise Exception(f"ERROR in {config_path}: column name specified for ILLUMINA does not exist in metadata or runs sheet. Please fix!")
+                raise Exception(f"ERROR in {config_path}: column name specified for ILLUMINA_SAMPLES does not exist in metadata or runs sheet. Please fix!")
             sampleid_list = md_df[col_name].to_list()
-            if sample_existence_check(raw_dir, sampleid_list[0]):
+            if sample_existence_check(raw_dir_ilmn, sampleid_list[0]):
                 ilmn_samples_organisation = "folder"
             for sampleid in sampleid_list:
                 if sampleid_valid_check(sampleid):
-                    if sample_existence_check(raw_dir, sampleid, ilmn_samples_organisation) and sampleid not in ilmn_samples:
+                    if sample_existence_check(raw_dir_ilmn, sampleid, ilmn_samples_organisation) and sampleid not in ilmn_samples:
                         ilmn_samples.append(sampleid)
                     else:
-                        raise Exception(f"ERROR: {sampleid} not in raw data folder {raw_dir} with suffix {ilmn_suffix[0]}")
+                        raise Exception(f"ERROR: {sampleid} not in raw data folder {raw_dir_ilmn} with suffix {ilmn_suffix[0]}")
     # listed samples
     else:
         for sampleid in x:
             if sampleid_valid_check(sampleid):
-                if sample_existence_check(raw_dir, sampleid):
+                if sample_existence_check(raw_dir_ilmn, sampleid):
                     ilmn_samples.append(sampleid)
                 else:
-                    raise Exception(f"ERROR: {sampleid} is not found under {raw_dir} with suffix {ilmn_suffix[0]}.")
+                    raise Exception(f"ERROR: {sampleid} is not found under {raw_dir_ilmn} with suffix {ilmn_suffix[0]}.")
+
+# Make list of nanopore samples, if NANOPORE_SAMPLES in config
+nanopore_samples = list()
+if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
+    raw_dir_nanopore = validate_required_key(config, 'NANOPORE_raw_reads_dir')
+    for sampleid in x:
+        if sampleid_valid_check(sampleid):
+            if sample_existence_check(raw_dir_nanopore, sampleid, seq_platform='NANOPORE'):
+                nanopore_samples.append(sampleid)
+            else:
+                raise Exception(f"ERROR: {sampleid} is not found under {raw_dir_nanopore} with suffix {nanopore_suffix}.")
 
 # Define all the outputs needed by target 'all'
 
@@ -148,8 +167,18 @@ def qc1_config_yml_output():
                     omics = omics)
     return(result)
 
+def qc1_nanopore_output():
+    result = []
+    if len(nanopore_samples) > 0:
+        result = expand("{wd}/{omics}/1-trimmed/{sample}/{sample}.nanopore.fq.gz",
+                        wd = working_dir,
+                        omics = omics,
+                        sample = nanopore_samples)
+    return(result)
+
 rule all:
     input:
+        qc1_nanopore_output(),
         qc1_multiqc_output(),
         qc1_read_length_cutoff_output(),
         qc1_config_yml_output(),
@@ -167,7 +196,7 @@ rule all:
 def get_runs_for_sample(sample):
     runs = [sample]
     if ilmn_samples_organisation == "folder":
-        sample_dir = '{raw_dir}/{sample}'.format(raw_dir=raw_dir, sample=sample)
+        sample_dir = '{raw_dir_ilmn}/{sample}'.format(raw_dir_ilmn=raw_dir_ilmn, sample=sample)
         runs = [ f.name.split(ilmn_suffix[0])[0][:-1] for f in os.scandir(sample_dir) if f.is_file() and f.name.endswith(ilmn_suffix[0]) ]
     elif ilmn_runs_df is not None:
         runs = ilmn_runs_df.loc[ilmn_runs_df['sample'] == sample]['run'].to_list()
@@ -176,9 +205,9 @@ def get_runs_for_sample(sample):
 # Get files for a run
 
 def get_raw_reads_for_sample_run(wildcards):
-    prefix = '{raw_dir}/{run}'.format(raw_dir=raw_dir, run=wildcards.run)
+    prefix = '{raw_dir_ilmn}/{run}'.format(raw_dir_ilmn=raw_dir_ilmn, run=wildcards.run)
     if ilmn_samples_organisation == "folder":
-        prefix = '{raw_dir}/{sample}/{run}'.format(raw_dir=raw_dir, sample=wildcards.sample, run=wildcards.run)
+        prefix = '{raw_dir_ilmn}/{sample}/{run}'.format(raw_dir_ilmn=raw_dir_ilmn, sample=wildcards.sample, run=wildcards.run)
     raw_sample_run = {}
     for i, k in enumerate(['read_fw', 'read_rv']):
         raw_sample_run[k] = glob.glob("{}[.-_]{}".format(prefix, ilmn_suffix[i]))[0]
@@ -189,10 +218,10 @@ def get_raw_reads_for_sample_run(wildcards):
 def get_example_to_infer_index(sample):
     runs = get_runs_for_sample(sample)
     if ilmn_samples_organisation == "folder":
-        sample_dir = '{raw_dir}/{sample}'.format(raw_dir=raw_dir, sample=sample)
+        sample_dir = '{raw_dir_ilmn}/{sample}'.format(raw_dir_ilmn=raw_dir_ilmn, sample=sample)
         example_fqs = [ os.path.normpath(f) for f in os.scandir(sample_dir) if f.is_file() and f.name.endswith(ilmn_suffix[0]) ]
     else:
-        example_fqs = glob.glob("{}/{}[.-_]{}".format(raw_dir, runs[0], ilmn_suffix[0]))
+        example_fqs = glob.glob("{}/{}[.-_]{}".format(raw_dir_ilmn, runs[0], ilmn_suffix[0]))
     return(example_fqs[0])
 
 ##########
@@ -565,6 +594,36 @@ rule qc1_cumulative_read_len_plot:
         """
 
 ##########################################################################################################
+# Trim NANOPORE data
+##########################################################################################################
+#################
+# Get HQ reads covering 95% bases
+#################
+
+rule filter_nanopore_reads:
+    input:
+        ont="{wd}/{omics}/0-raw/{sample}/{sample}.nanopore.fq.gz"
+    output:
+        ont="{wd}/{omics}/1-trimmed/{sample}/{sample}.nanopore.fq.gz"
+    log:
+        "{wd}/logs/{omics}/1-trimmed/{sample}_qc1_nanopore_trimlog.log"
+    shadow:
+        "minimal"
+    threads: 2
+    resources:
+        mem=5
+    conda:
+        minto_dir + "/envs/MIntO_base.yml"
+    shell:
+        """
+        time (
+            filtlong --length_weight 10 --min_length 500 --keep_percent 95 {input.ont} | gzip > filtered.fq.gz
+            rsync -a filtered.fq.gz {output.ont}
+        ) >& {log}
+        """
+
+
+##########################################################################################################
 # Generate configuration yml file for the next step in pre-processing of metaG and metaT data
 ##########################################################################################################
 
@@ -600,7 +659,7 @@ METADATA: {metadata}
 # Read length filtering
 #########################
 
-READ_minlen: $(cat {input.cutoff_file})
+ILLUMINA_READ_minlen: $(cat {input.cutoff_file})
 
 #########################
 # Host genome filtering
@@ -697,7 +756,7 @@ COAS_factor:
 ######################
 # Optionally, do you want to merge replicates or make pseudo samples
 # E.g:
-# MERGE_ILLUMINA_SAMPLES:
+# ILLUMINA_MERGE_SAMPLES:
 #  sample1: rep1a+rep1b+rep1c
 #  sample2: rep2a+rep2b+rep2c
 #
@@ -718,24 +777,43 @@ COAS_factor:
 # rep2a, rep2b, rep2c, sample2 from the beginning.
 ######################
 
-#MERGE_ILLUMINA_SAMPLES:
+#ILLUMINA_MERGE_SAMPLES:
 
 
 ######################
 # Input data
 ######################
 
-# ILLUMINA section:
+# ILLUMINA_SAMPLES section:
 # -----------------
 # List of illumina samples that will be filtered by read length.
 #
 # E.g.:
-# - I1
-# - I2
+# - S1
+# - S2
 #
-ILLUMINA:
+ILLUMINA_SAMPLES:
 $(for i in {ilmn_samples}; do echo "- '$i'"; done)
+
+# NANOPORE_SAMPLES section:
+# -----------------
+# List of nanopore samples that will be filtered by read length.
+#
+# E.g.:
+# - S1
+# - S2
+#
 ___EOF___
 
-        echo {ilmn_samples} >& {log}
+
+# NANOPORE_SAMPLES sample list
+
+        if [ ! -z "{nanopore_samples}" ]; then
+            cat >> {output.config_file} <<___EOF___
+NANOPORE_SAMPLES:
+$(for i in {nanopore_samples}; do echo "- '$i'"; done)
+___EOF___
+        fi
+
+        echo -e "ILLUMINA_SAMPLES: {ilmn_samples}\\nNANOPORE_SAMPLES: {nanopore_samples}" >& {log}
         """
