@@ -2,6 +2,13 @@
 
 import os.path
 
+# Make sure that config_parse.smk is already included.
+
+try:
+    GLOBAL_CONFIG_KEYTYPES
+except NameError:
+        raise Exception(f"GLOBAL_CONFIG_KEYTYPES is not defined. Did you forget to include 'config_parser.smk'?")
+
 ##############################################
 # Clarify where the final inputs are
 # NOTE: Watch the difference between list.extend(list) and list.append(scalar)
@@ -40,8 +47,8 @@ def get_runs_for_sample(wd, omics, sample, caller, seq_platform='ILLUMINA'):
 
     # If it is a merged_illumina_sample, then it will not exist until the last step.
     # Just return itself so that it is created after last step is done.
-    if 'MERGE_ILLUMINA_SAMPLES' in config and config['MERGE_ILLUMINA_SAMPLES'] is not None:
-        if sample in config['MERGE_ILLUMINA_SAMPLES']:
+    if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
+        if sample in x:
             return(sample)
 
     # Sequentially look for runs from the last step to first
@@ -78,7 +85,7 @@ def get_runs_for_sample(wd, omics, sample, caller, seq_platform='ILLUMINA'):
 
     #print(runs)
     if len(runs) == 0:
-        raise Exception(f"Cannot find runs for sample={sample}")
+        raise Exception(f"Cannot find runs for sample={sample}; tech={seq_platform}")
     return(runs)
 
 ########################################
