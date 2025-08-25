@@ -13,6 +13,22 @@ import os.path
 ##############################################
 
 GLOBAL_CONFIG_KEYTYPES = {
+
+    # ILLUMINA-related variables
+    'ILLUMINA_MERGE_SAMPLES': dict,
+    'ILLUMINA_raw_reads_dir' : 'directory',
+    'ILLUMINA_READ_minlen' : int,
+    'ILLUMINA_SAMPLES' : [list, 'file', str],
+    'ILLUMINA_suffix' : list,
+
+    # NANOPORE-related variables
+    'NANOPORE_MERGE_SAMPLES': dict,
+    'NANOPORE_raw_reads_dir' : 'directory',
+    'NANOPORE_READ_minlen' : int,
+    'NANOPORE_SAMPLES' : list,
+    'NANOPORE_suffix' : str,
+
+    # others
     'abundance_normalization' : str,
     'ALIGNER_threads' : int,
     'ALIGNER_type' : str,
@@ -49,8 +65,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'FASTP_threads' : int,
     'GTDB_TAXONOMY_VERSION' : str,
     'HYBRID' : dict,
-    'ILLUMINA' : [list, 'file', str],
-    'ILLUMINA_suffix' : list,
     'LOCAL_DATABASE_CACHE_DIR' : str,
     'MAG_omics' : str,
     'MAG_BUILDING_SUBDIR' : str,
@@ -60,7 +74,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'MEGAHIT_memory' : int,
     'MEGAHIT_presets' : list,
     'MEGAHIT_threads' : int,
-    'MERGE_ILLUMINA_SAMPLES': dict,
     'MERGE_memory' : int,
     'MERGE_threads' : int,
     'METABULI_MEM_GB' : int,
@@ -83,7 +96,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'MULTIPLEX_TECH' : str,
     'NAME_host_genome' : str,
     'NAME_reference' : str,
-    'NANOPORE' : list,
     'omics' : str,
     'PATH_host_genome' : 'directory',
     'PATH_reference' : 'directory',
@@ -92,8 +104,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'PLOT_factor2' : str,
     'PLOT_time' : str,
     'PROJECT' : str,
-    'raw_reads_dir' : 'directory',
-    'READ_minlen' : int,
     'rRNA_index_memory' : int,
     'rRNA_index_threads' : int,
     'RUN_TAXONOMY' : bool,
@@ -128,10 +138,12 @@ GLOBAL_CONFIG_KEYTYPES = {
 }
 
 # Aliases for keys.
-# E.g., This module will always refer to minimum read length with 'READ_minlen'.
-#       But if it cannot find 'READ_minlen', it will look for 'TRIMMOMATIC_minlen'.
+# E.g., This module will always refer to minimum read length with 'ILLUMINA_READ_minlen'.
+#       But if it cannot find 'ILLUMINA_READ_minlen', it will look for 'TRIMMOMATIC_minlen' or 'READ_minlen'.
 ALIASES = {
-    'READ_minlen' : ['TRIMMOMATIC_minlen'],
+    'ILLUMINA_READ_minlen' : ['TRIMMOMATIC_minlen', 'READ_minlen'],
+    'ILLUMINA_raw_reads_dir' : ['raw_reads_dir'],
+    'ILLUMINA_MERGE_SAMPLES' : ['MERGE_ILLUMINA_SAMPLES'],
     'FASTP_adapters' : ['FASTP_adaptors'],
     'ALIGNER_threads' : ['BWA_threads', 'BWA_host_threads'],
     'TRIMMOMATIC_adaptors' : ['TRIMMOMATIC_adapters']
