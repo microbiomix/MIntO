@@ -80,6 +80,7 @@ GLOBAL_CONFIG_KEYTYPES = {
     'METADATA' : 'file',
     'METAFLYE_presets' : dict,
     'metaphlan_version' : str,
+    'METASPADES_CONTIGS_OR_SCAFFOLDS' : str,
     'METASPADES_custom_build' : 'file',
     'METASPADES_hybrid_max_k' : int,
     'METASPADES_illumina_max_k' : int,
@@ -117,7 +118,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'SOURMASH_cutoff' : float,
     'SOURMASH_max_abund' : int,
     'SOURMASH_min_abund' : int,
-    'SPADES_CONTIGS_OR_SCAFFOLDS' : str,
     'TAXA_memory' : int,
     'TAXA_profiler' : str,
     'TAXA_threads' : int,
@@ -144,6 +144,7 @@ ALIASES = {
     'ILLUMINA_READ_minlen' : ['TRIMMOMATIC_minlen', 'READ_minlen'],
     'ILLUMINA_raw_reads_dir' : ['raw_reads_dir'],
     'ILLUMINA_MERGE_SAMPLES' : ['MERGE_ILLUMINA_SAMPLES'],
+    'METASPADES_CONTIGS_OR_SCAFFOLDS' : ['SPADES_CONTIGS_OR_SCAFFOLDS'],
     'FASTP_adapters' : ['FASTP_adaptors'],
     'ALIGNER_threads' : ['BWA_threads', 'BWA_host_threads'],
     'TRIMMOMATIC_adaptors' : ['TRIMMOMATIC_adapters']
