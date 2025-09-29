@@ -211,6 +211,11 @@ if omics == 'metaG':
 def taxonomy_plot_output():
 
     results = list()
+
+    # If there is no ILLUMINA_SAMPLES, then skip taxonomy plot
+    if len(nonredundant_ilmn_samples) == 0:
+        return(results)
+
     profiles = [expand("{wd}/output/6-taxa_profile/{omics}.{taxonomy}.tsv",
                 wd = working_dir,
                 omics = omics,
@@ -232,7 +237,7 @@ def taxonomy_plot_output():
     return(results)
 
 def smash_plot_output():
-    if omics == "metaG" and sourmash_M > 0:
+    if omics == "metaG" and len(nonredundant_ilmn_samples) > 0 and sourmash_M > 0:
         barplots = "{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.clusters.pdf".format(
                         wd = working_dir,
                         omics = omics,
