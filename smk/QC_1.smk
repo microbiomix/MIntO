@@ -604,6 +604,7 @@ rule filter_nanopore_reads:
     input:
         ont="{wd}/{omics}/0-raw/{sample}/{sample}.nanopore.fq.gz"
     output:
+        summary="{wd}/{omics}/1-trimmed/{sample}/{sample}.NANOPORE.trim.summary",
         ont="{wd}/{omics}/1-trimmed/{sample}/{sample}.nanopore.fq.gz"
     log:
         "{wd}/logs/{omics}/1-trimmed/{sample}_qc1_nanopore_trimlog.log"
@@ -617,7 +618,9 @@ rule filter_nanopore_reads:
     shell:
         """
         time (
-            fastplong --disable_adapter_trimming --cut_front --cut_front_window_size 1 --cut_front_mean_quality 15 --cut_tail --cut_tail_window_size 1 --cut_tail_mean_quality 15 --thread {threads} -z 6 -i {input.ont} -o filtered.fq.gz
+            fastplong --disable_adapter_trimming --cut_front --cut_front_window_size 1 --cut_front_mean_quality 15 --cut_tail --cut_tail_window_size 1 --cut_tail_mean_quality 15 --thread {threads} -z 6 -i {input.ont} --stdout \
+                    | tee >(seqkit stats --tabular --all -i {wildcards.sample} - > {output.summary}) \
+                    | gzip > filtered.fq.gz
             rsync -a filtered.fq.gz {output.ont}
         ) >& {log}
         """
