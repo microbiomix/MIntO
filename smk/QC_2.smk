@@ -725,9 +725,9 @@ rule aggregate_readcounts_illumina:
         2
     run:
         readcounts = []
-        for minlen, clean in zip(input.minlen_rc, input.clean_rc):
-            with open(minlen, "r") as ifile_minlen, \
-                 open(clean, "r") as ifile_clean:
+        for i, sampleid in enumerate(nonredundant_ilmn_samples):
+            with open(input.minlen_rc[i], "r") as ifile_minlen, \
+                 open(input.clean_rc[i], "r") as ifile_clean:
                 minlen_frags = int(ifile_minlen.readline())
                 clean_frags  = int(ifile_clean.readline())
                 rat = round(clean_frags / minlen_frags * 100, 2)
