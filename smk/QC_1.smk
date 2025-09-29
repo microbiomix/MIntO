@@ -609,7 +609,7 @@ rule filter_nanopore_reads:
         "{wd}/logs/{omics}/1-trimmed/{sample}_qc1_nanopore_trimlog.log"
     shadow:
         "minimal"
-    threads: 2
+    threads: 4
     resources:
         mem=5
     conda:
@@ -617,7 +617,7 @@ rule filter_nanopore_reads:
     shell:
         """
         time (
-            filtlong --length_weight 10 --min_length 500 --keep_percent 95 {input.ont} | gzip > filtered.fq.gz
+            fastplong --disable_adapter_trimming --cut_front --cut_front_window_size 1 --cut_front_mean_quality 15 --cut_tail --cut_tail_window_size 1 --cut_tail_mean_quality 15 --thread {threads} -z 6 -i {input.ont} -o filtered.fq.gz
             rsync -a filtered.fq.gz {output.ont}
         ) >& {log}
         """

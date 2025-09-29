@@ -8,6 +8,7 @@ dependencies:
   - bwa-mem2=2.2.1
   - coverm=0.7.0
   - fastp=0.23
+  - fastplong=0.4.1
   - fastqc=0.12
   - filtlong=0.3.0
   - flye=2.9.6
