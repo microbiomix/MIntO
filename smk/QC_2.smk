@@ -478,6 +478,7 @@ rule qc2_host_filter_nanopore:
         mmi=get_host_minimap2_index
     output:
         host_free="{wd}/{omics}/4-hostfree/{sample}/{run}.nanopore.fq.gz",
+        summary="{wd}/{omics}/4-hostfree/{sample}/{run}.NANOPORE.trim.summary",
     shadow:
         "minimal"
     log:
@@ -496,6 +497,7 @@ rule qc2_host_filter_nanopore:
                 minimap2 -ax map-ont -t {threads} -v 3 {input.mmi} {input.ont} \
                   | msamtools filter -S -l 300 --invert --keep_unmapped -bu - \
                   | samtools fastq - \
+                  | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
                   | gzip -c \
                   > hostfree.fq.gz
                 rsync -a hostfree.fq.gz {output.host_free}
