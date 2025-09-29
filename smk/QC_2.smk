@@ -347,7 +347,7 @@ rule qc2_length_nanopore:
         """
         time (
             filtlong --min_length {params.read_length_cutoff} --keep_percent 99 --length_weight 10 {input.ont} \
-                    | tee >(seqtk size - > {output.summary}) \
+                    | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
                     | gzip > filt.fq.gz
             rsync filt.fq.gz {output.ont}
         ) >& {log}
@@ -649,17 +649,31 @@ rule minlength_readcounts:
     threads:
         2
     run:
+        import pandas
         run_readcounts = []
+
+        # Process individual files
         for trim_summ_file in input.trim_summary:
-            with open(trim_summ_file, "r") as fp:
-                for line in fp:
-                    if wildcards.tech == 'ILLUMINA' and line.startswith("[INFO]"):
-                        if "paired-end reads saved to" in line:
+            if wildcards.tech == 'ILLUMINA':
+                with open(trim_summ_file, "r") as fp:
+                    for line in fp:
+                        if line.startswith("[INFO]") and "paired-end reads saved to" in line:
                             tmp = line.split()
                             run_readcounts.append(int(tmp[1]))
-                    elif wildcards.tech == 'NANOPORE':
-                        tmp = line.split()
-                        run_readcounts.append(int(tmp[0]))
+            elif wildcards.tech == 'NANOPORE':
+                # Read the table
+                seq_stats = pandas.read_table(trim_summ_file)
+
+                # Ensure there is only one row and num_seqs column exists
+                if (len(seq_stats) != 1):
+                    raise ValueError(f"ERROR in {trim_summ_file}: Expected exactly 1 row, found {len(seq_stats)} rows")
+                if "num_seqs" not in seq_stats.columns:
+                    raise ValueError(f"ERROR in {trim_summ_file}: Column 'num_seqs' not found")
+
+                # Squeeze the single value
+                run_readcounts.append(seq_stats['num_seqs'].squeeze())
+
+        # Write combined file
         with open(output.minlen_rc, "w") as of:
             print(sum(run_readcounts), file = of)
 
