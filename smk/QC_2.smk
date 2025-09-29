@@ -346,7 +346,7 @@ rule qc2_length_nanopore:
     shell:
         """
         time (
-            filtlong --min_length {params.read_length_cutoff} --keep_percent 99 --length_weight 10 {input.ont} \
+            fastplong --disable_quality_filtering --disable_adapter_trimming --length_required {params.read_length_cutoff} --in {input.ont} --stdout \
                     | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
                     | gzip > filt.fq.gz
             rsync filt.fq.gz {output.ont}
