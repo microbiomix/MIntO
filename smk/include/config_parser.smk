@@ -16,6 +16,7 @@ GLOBAL_CONFIG_KEYTYPES = {
 
     # ILLUMINA-related variables
     'ILLUMINA_MERGE_SAMPLES': dict,
+    'ILLUMINA_MULTIPLEX_TECH' : str,
     'ILLUMINA_raw_reads_dir' : 'directory',
     'ILLUMINA_READ_minlen' : int,
     'ILLUMINA_SAMPLES' : [list, 'file', str],
@@ -94,7 +95,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'MINTO_MODE' : str,
     'motus_version' : str,
     'msamtools_filter_length' : int,
-    'MULTIPLEX_TECH' : str,
     'NAME_host_genome' : str,
     'NAME_reference' : str,
     'omics' : str,
@@ -141,13 +141,14 @@ GLOBAL_CONFIG_KEYTYPES = {
 # E.g., This module will always refer to minimum read length with 'ILLUMINA_READ_minlen'.
 #       But if it cannot find 'ILLUMINA_READ_minlen', it will look for 'TRIMMOMATIC_minlen' or 'READ_minlen'.
 ALIASES = {
-    'ILLUMINA_READ_minlen' : ['TRIMMOMATIC_minlen', 'READ_minlen'],
+    'ILLUMINA_MULTIPLEX_TECH': ['MULTIPLEX_TECH'],
+    'ILLUMINA_READ_minlen'   : ['TRIMMOMATIC_minlen', 'READ_minlen'],
     'ILLUMINA_raw_reads_dir' : ['raw_reads_dir'],
     'ILLUMINA_MERGE_SAMPLES' : ['MERGE_ILLUMINA_SAMPLES'],
     'METASPADES_CONTIGS_OR_SCAFFOLDS' : ['SPADES_CONTIGS_OR_SCAFFOLDS'],
-    'FASTP_adapters' : ['FASTP_adaptors'],
-    'ALIGNER_threads' : ['BWA_threads', 'BWA_host_threads'],
-    'TRIMMOMATIC_adaptors' : ['TRIMMOMATIC_adapters']
+    'ALIGNER_threads'        : ['BWA_threads', 'BWA_host_threads'],
+    'FASTP_adapters'         : ['FASTP_adaptors'],
+    'TRIMMOMATIC_adaptors'   : ['TRIMMOMATIC_adapters']
 }
 
 ##############################################

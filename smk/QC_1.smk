@@ -55,7 +55,7 @@ if (x := validate_optional_key(config, 'TRIMMOMATIC_simple_clip_threshold')):
     trimmomatic_simple_clip_threshold = x
 
 multiplex_tech = 'TruSeq'
-if (x := validate_optional_key(config, 'MULTIPLEX_TECH')):
+if (x := validate_optional_key(config, 'ILLUMINA_MULTIPLEX_TECH')):
     multiplex_tech = x
 
 
