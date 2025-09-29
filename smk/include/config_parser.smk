@@ -141,10 +141,12 @@ GLOBAL_CONFIG_KEYTYPES = {
 # E.g., This module will always refer to minimum read length with 'ILLUMINA_READ_minlen'.
 #       But if it cannot find 'ILLUMINA_READ_minlen', it will look for 'TRIMMOMATIC_minlen' or 'READ_minlen'.
 ALIASES = {
+    'ILLUMINA_SAMPLES'       : ['ILLUMINA'],
     'ILLUMINA_MULTIPLEX_TECH': ['MULTIPLEX_TECH'],
     'ILLUMINA_READ_minlen'   : ['TRIMMOMATIC_minlen', 'READ_minlen'],
     'ILLUMINA_raw_reads_dir' : ['raw_reads_dir'],
     'ILLUMINA_MERGE_SAMPLES' : ['MERGE_ILLUMINA_SAMPLES'],
+    'NANOPORE_SAMPLES'       : ['NANOPORE'],
     'METASPADES_CONTIGS_OR_SCAFFOLDS' : ['SPADES_CONTIGS_OR_SCAFFOLDS'],
     'ALIGNER_threads'        : ['BWA_threads', 'BWA_host_threads'],
     'FASTP_adapters'         : ['FASTP_adaptors'],
