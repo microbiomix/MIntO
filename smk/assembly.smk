@@ -459,8 +459,12 @@ rule nanopore_assembly_metaflye:
     input:
         ont="{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz"
     output:
-        "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.fasta",
-        "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_info.txt"
+        fasta ="{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.fasta",
+        gfa   ="{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.gfa",
+        gv    ="{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.gv",
+        info="{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_info.txt"
+    shadow:
+        "minimal"
     log:
         "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}_{assembly_preset}_metaflye.log"
     resources:
@@ -475,6 +479,10 @@ rule nanopore_assembly_metaflye:
         mkdir -p $(dirname {output[0]})
         time (
             flye --nano-raw {input} --out-dir $(dirname {output[0]}) --threads {threads} --meta {params.options}
+            rsync -a out/assembly.fasta {output.fasta}
+            rsync -a out/assembly_info.txt {output.info}
+            rsync -a out/assembly_graph.gfa {output.gfa}
+            rsync -a out/assembly_graph.gv {output.gv}
         ) >& {log}
         """
 
