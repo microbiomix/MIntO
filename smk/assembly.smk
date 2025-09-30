@@ -478,7 +478,7 @@ rule nanopore_assembly_metaflye:
         """
         mkdir -p $(dirname {output[0]})
         time (
-            flye --nano-raw {input} --out-dir $(dirname {output[0]}) --threads {threads} --meta {params.options}
+            flye --nano-hq {input} --out-dir out --threads {threads} --meta {params.options}
             rsync -a out/assembly.fasta {output.fasta}
             rsync -a out/assembly_info.txt {output.info}
             rsync -a out/assembly_graph.gfa {output.gfa}
