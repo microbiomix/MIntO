@@ -92,7 +92,7 @@ def get_runs_for_sample(wd, omics, sample, caller, seq_platform='ILLUMINA'):
 # Get list of one-end reads for this sample
 # Returns list of one file per run, list with one element when single run.
 ########################################
-def get_final_fastq_one_end(wd, omics, sample, stage, pair):
+def get_final_fastq_one_end(wd, omics, sample, stage, pair, seq_platform='ILLUMINA'):
 
     files = list()
 
@@ -107,7 +107,7 @@ def get_final_fastq_one_end(wd, omics, sample, stage, pair):
         locations.append('6-corrected')
 
     # For each run
-    for r in get_runs_for_sample(wd, omics, sample, stage):
+    for r in get_runs_for_sample(wd, omics, sample, stage, seq_platform):
 
         # Where to store fastq name for this run if found
         this_run_fastq = None
