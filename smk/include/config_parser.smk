@@ -16,6 +16,7 @@ GLOBAL_CONFIG_KEYTYPES = {
 
     # ILLUMINA-related variables
     'ILLUMINA_MERGE_SAMPLES': dict,
+    'ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS': bool,
     'ILLUMINA_MULTIPLEX_TECH' : str,
     'ILLUMINA_raw_reads_dir' : 'directory',
     'ILLUMINA_READ_minlen' : int,
@@ -24,6 +25,7 @@ GLOBAL_CONFIG_KEYTYPES = {
 
     # NANOPORE-related variables
     'NANOPORE_MERGE_SAMPLES': dict,
+    'NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS': bool,
     'NANOPORE_raw_reads_dir' : 'directory',
     'NANOPORE_READ_minlen' : int,
     'NANOPORE_SAMPLES' : list,
