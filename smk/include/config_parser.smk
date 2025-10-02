@@ -73,6 +73,7 @@ GLOBAL_CONFIG_KEYTYPES = {
     'MAG_BUILDING_SUBDIR' : str,
     'MAIN_factor' : str,
     'MAX_RAM_GB_PER_JOB' : int,
+    'MEDAKA_INFERENCE_MODEL' : str,
     'MEGAHIT_custom' : [str, list],
     'MEGAHIT_memory' : int,
     'MEGAHIT_presets' : list,

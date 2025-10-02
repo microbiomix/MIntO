@@ -63,6 +63,10 @@ if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
     check_input_directory(x, locations = ['6-corrected', get_qc2_output_location(omics)])
     nanopore_samples = x
 
+###############################
+# Hybrid-/co-assemblies
+###############################
+
 # Make list of nanopore-illumina hybrid assemblies, if HYBRID in config
 hybrid_assemblies = list()
 if (x := validate_optional_key(config, 'HYBRID')):
@@ -144,6 +148,8 @@ METAFLYE_presets = dict()
 # Check for METAFLYE_presets
 if (x := validate_optional_key(config, 'METAFLYE_presets')):
     METAFLYE_presets = x
+    if (x := validate_optional_key(config, 'MEDAKA_INFERENCE_MODEL')):
+        MEDAKA_INFERENCE_MODEL = x
 
 if nanopore_samples and not METAFLYE_presets:
     raise Exception(f"ERROR in {config_path}: METAFLYE_presets variable listing MetaFlye parameters is missing")
@@ -453,7 +459,7 @@ rule coassembly_megahit:
         """
 
 ###############################################################################################
-# Assemble nanopore-raw sequences using flye 2.8.3
+# Assemble nanopore sequences using flye
 ###############################################################################################
 rule nanopore_assembly_metaflye:
     input:
@@ -483,6 +489,40 @@ rule nanopore_assembly_metaflye:
             rsync -a out/assembly_info.txt {output.info}
             rsync -a out/assembly_graph.gfa {output.gfa}
             rsync -a out/assembly_graph.gv {output.gv}
+        ) >& {log}
+        """
+
+###############################################################################################
+# Polish flye contigs using medaka
+###############################################################################################
+
+# mem_usage
+# Regression: max_mem_kb = 1.214e06 + 4.863e-02*input.contigs
+# On top, it gets a baseline 5GB and every new attempt gets 5GB more.
+rule medaka_consensus:
+    input:
+        contigs = rules.nanopore_assembly_metaflye.output.fasta,
+        reads   = "{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz",
+    output:
+        fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.medaka.fasta"
+    shadow:
+        "minimal"
+    log:
+        "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/medaka_consensus.log"
+    params:
+        model = MEDAKA_INFERENCE_MODEL if MEDAKA_INFERENCE_MODEL is not None else ""
+    threads:
+        4
+    resources:
+        mem=lambda wildcards, input, attempt: 1.22 + 5e-8*len(input.contigs) + 5*attempt,
+        gpu=1
+    conda:
+        minto_dir + "/envs/MIntO_base.yml"
+    shell:
+        """
+        time (
+            medaka_consensus -i {input.reads} -d {input.contigs} -o out -t {threads} {params.model}
+            rsync -a out/consensus.fasta {output.fasta}
         ) >& {log}
         """
 
@@ -522,8 +562,8 @@ rule mark_circular_metaspades_contigs:
 rule mark_circular_flye_contigs:
     localrule: True
     input:
-        "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.fasta",
-        "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_info.txt"
+        rules.medaka_consensus.output.fasta,
+        rules.nanopore_assembly_metaflye.output.info,
     output:
         "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.fasta",
     run:
