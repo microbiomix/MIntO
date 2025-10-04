@@ -371,7 +371,7 @@ def get_assembly_batch_index_files(wildcards):
 rule set_max_mapcount:
     localrule: True
     input:
-        "{wd}/output/2-qc/{omics}.readcounts.txt"
+        "{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt"
     output:
         "{wd}/{omics}/8-1-binning/{omics}.mapped_readcounts.txt"
     resources:
