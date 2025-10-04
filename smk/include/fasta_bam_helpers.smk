@@ -104,8 +104,9 @@ def filter_fasta_by_length(infile, outfile, min_length=2500):
     import os
 
     # Create the output folder
-    if not os.path.exists(os.path.dirname(outfile)):
-        os.mkdir(os.path.dirname(outfile))
+    outdir = os.path.dirname(outfile)
+    if outdir != '' and not os.path.exists(outdir):
+        os.mkdir(outdir)
 
     # Open the output file
     with open_file(outfile, mode='wt') as out:
@@ -121,9 +122,10 @@ def filter_fasta_list_by_length(infile_list, outfile, min_length=2500):
 
     import os
 
-    # Create the output folder
-    if not os.path.exists(os.path.dirname(outfile)):
-        os.mkdir(os.path.dirname(outfile))
+    # Create the output folder if needed
+    outdir = os.path.dirname(outfile)
+    if outdir != '' and not os.path.exists(outdir):
+        os.mkdir(outdir)
 
     # Open the output file
     with open_file(outfile, mode='wt') as out:
