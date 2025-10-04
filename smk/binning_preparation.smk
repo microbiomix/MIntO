@@ -186,7 +186,7 @@ if (x := validate_optional_key(config, 'EXCLUDE_ASSEMBLY_TYPES')):
 
 rule all:
     input:
-        abundance   = f"{working_dir}/{omics}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.npz",
+        abundance   = f"{working_dir}/{omics}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.tsv.gz",
         config_yaml = f"{working_dir}/{omics}/mags_generation.yaml",
         versions    = print_versions.get_version_output(snakefile_name)
     default_target: True
@@ -601,6 +601,9 @@ rule colbind_sample_contig_depths_for_batch:
                 # Get md5 of first 2 columns
                 md5_first = hashlib.md5(pickle.dumps(df.iloc[:, 0:2])).hexdigest() # make hash for seqname and seqlen
 
+                # Rename contigName to contigname as VAMB expects
+                df.rename(columns={"contigName": "contigname"}, inplace=True)
+
                 # Drop columns ending in '-var' as this is not used by vamb, and add to df_list
                 df_list.append(df.drop(df.filter(regex='^contigLen$|^totalAvgDepth$|-var$').columns, axis='columns'))
 
@@ -837,7 +840,7 @@ rule combine_contig_depth_header:
         fi
         """
 
-### Prepare abundance.npz for vamb v5+
+### Prepare abundance.tsv.gz for vamb v5+
 # Memory requirement:
 # From regression of 'gzip -2' depth file sizes, number of samples and maxmem from GNU time:
 #    memKB = 4.336e+5 + 1.745e-3*filesize - 1.150e+3*samples
@@ -845,14 +848,13 @@ rule combine_contig_depth_header:
 # Ignored the negative effect of samples to err on cautious side.
 # Safely converted to 2 + int(1.75*filesizeGB)
 # Using dummy filesize value to allow --dry-run to work when files don't exist yet
-rule make_abundance_npz:
+rule make_abundance_tsv:
     input:
         contigs = rules.combine_fasta.output.fasta_combined,
         header  = rules.combine_contig_depth_header.output.header,
         depths  = get_depth_files_across_scaffold_types,
     output:
-        tsv="{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.tsv",
-        npz="{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.npz"
+        tsv="{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.tsv.gz"
     log:
         "{wd}/logs/{omics}/8-1-binning/scaffolds.{min_length}.abundance.log"
     shadow:
@@ -861,15 +863,11 @@ rule make_abundance_npz:
         1
     resources:
         mem = lambda wildcards, input: 2 + int(1.75*sum(get_file_size_gb(file) for file in input.depths))
-    conda:
-        minto_dir + "/envs/vamb.yml"
     shell:
         """
         time (
-            (zcat {input.header} | sed 's/^contigName/contigname/'; zcat {input.depths}) > combined.depth
-            python3 {script_dir}/make_vamb_abundance_npz.py --fasta {input.contigs} --abundance-tsv combined.depth --minlength {wildcards.min_length} --output abundance.npz
-            rsync -a abundance.npz {output.npz}
-            rsync -a combined.depth {output.tsv}
+            cat {input.header} {input.depths} > combined.depth.gz
+            rsync -a combined.depth.gz {output.tsv}
         ) >& {log}
         """
 
