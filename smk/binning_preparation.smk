@@ -246,6 +246,7 @@ def calculate_batch_filesize_mb(wildcards):
 # This separation is to enable deletion of the batch fasta files when
 # a combined file is created, which will save space for large studies.
 checkpoint make_assembly_batches:
+    localrule: True
     input:
         assemblies = get_assemblies_for_scaf_type
     output:
