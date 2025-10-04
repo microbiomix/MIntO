@@ -737,7 +737,8 @@ rule combine_contig_depth_batches:
 rule combine_fasta_batches:
     localrule: True
     input:
-        fasta = get_fasta_batches_for_scaf_type
+        depths = get_depth_batches_for_scaf_type,
+        fasta  = get_fasta_batches_for_scaf_type
     output:
         fasta_combined = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/combined.fasta.gz")
     wildcard_constraints:
