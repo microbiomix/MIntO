@@ -321,28 +321,35 @@ rule write_assembly_batch_fasta:
     wildcard_constraints:
         min_length = r'\d+',
         scaf_type  = r'illumina_single|illumina_coas|illumina_single_nanopore|nanopore'
+    shadow:
+        "minimal"
     resources:
         mem = 5
     params:
         min_length = lambda wildcards: wildcards.min_length,
     run:
         import datetime
+        import shutil
 
         def logme(stream, msg):
             print(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"), msg, file=stream)
 
+        tmp_file = 'fasta.gz'
         with open(str(log), 'w') as f:
             with open(input.list) as listfile:
                 # get assembly list
                 assemblies = listfile.read().splitlines()
 
-                # write out batch
-                filter_fasta_list_by_length(assemblies, output.fasta, params.min_length)
-
                 # log progress
                 logme(f, "INFO:   INPUT ={}".format(assemblies))
                 logme(f, "INFO:   OUTPUT={}".format(output.fasta))
 
+                # write out batch
+                logme(f, "INFO: writing sequences to temporary file")
+                filter_fasta_list_by_length(assemblies, tmp_file, params.min_length)
+
+            logme(f, "INFO: copying temporary file to final output")
+            shutil.copy2(tmp_file, output.fasta)
             logme(f, "INFO: done")
 
 ################################################################################################
