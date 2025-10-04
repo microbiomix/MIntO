@@ -224,7 +224,7 @@ def get_assemblies_for_scaf_type(wildcards):
                             wd = wildcards.wd,
                             omics = wildcards.omics,
                             assembly = assemblies[wildcards.scaf_type],
-                            kmer_dir = "k21-" + str(hybrid_max_k),
+                            kmer_dir = "k21-" + str(METASPADES_hybrid_max_k),
                             contig_or_scaffold = spades_contigs_or_scaffolds)
     else:
         raise Exception(f"MIntO error: scaf_type={wildcards.scaf_type} is not allowed!")
