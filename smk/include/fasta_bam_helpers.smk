@@ -37,6 +37,8 @@ rule faidx:
         '{something}.f{asta}'
     output:
         '{something}.f{asta}.fai'
+    wildcard_constraints:
+        asta="a|na|asta"
     conda:
         config["minto_dir"]+"/envs/MIntO_base.yml"
     shell:
@@ -55,6 +57,8 @@ rule get_fasta_length:
         '{something}.f{asta}.fai'
     output:
         '{something}.f{asta}.len'
+    wildcard_constraints:
+        asta="a|na|asta"
     shell:
         """
         cut -f1,2 {input} | sort -k2,2nr > {output}
