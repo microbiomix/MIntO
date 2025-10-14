@@ -1274,21 +1274,28 @@ MEGAHIT_presets:
 # MetaFlye settings
 #
 # MetaFlye will be run for each parameter preset listed here.
-# By default Flye will be run with these parameters:
-#    --meta --genome-size 3.0m
+# If you list an empty string "", default MetaFlye will be run using this parameter:
+#    --meta
 # If you need to add more options, define them here and name them for future reference.
 # Notes:
 # ------
-# 1. Each preset parameter will be applied to each sample. If you only
+# 1. Nanopore input is considered to be > 10.4.1, so --nano-hq will be used.
+# 2. Each preset parameter will be applied to each sample. If you only
 #    want one parameter to be used, please comment everything else.
-# 2. If nothing is listed here, then MetaFlye won't be run.
+# 3. If nothing is listed here, then MetaFlye won't be run.
 #    If you just want our default parameters above, then here is a possible option:
 #      metaflye-default: ""
-# 3. 'tres-o3000-3x' is valid for flye 2.8.3. From 2.9.x, --plasmids and --trestle are
-#    not valid. So please use valid options if you are using newer versions of flye.
+# 4. Potential options to consider are: --scaffold, --iterations
 METAFLYE_presets:
-  tres-o3000-3x: --min-overlap 3000 --iterations 3
-  #metaflye-default: ""
+  metaflye-default: ""
+
+# medaka_consensus will be run with '--bacteria' argument.
+# It will choose 'r1041_e82_400bps_bacterial_methylation' if compatible or the default model name otherwise.
+# What should you do?
+# 1. You do not have R10 chemistry or newer: leave it as 'None'
+# 2. You have R10 chemistry or newer, and fastq headers are preserved: use '--bacteria'
+# 3. You have R10 chemistry or newer, but fastq headers are lost: use '--bacteria -m r1041_e82_400bps_bacterial_methylation'
+MEDAKA_INFERENCE_MODEL: --bacteria
 
 ###############################
 # Binning preparation settings
