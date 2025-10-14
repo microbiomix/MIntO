@@ -753,6 +753,8 @@ rule aggregate_readcounts_illumina:
                                                 sample = nonredundant_ilmn_samples)
     output:
         rc="{wd}/output/2-qc/{omics}.{tech}.readcounts.txt"
+    params:
+        samples = lambda wildcards: nonredundant_ilmn_samples if wildcards.tech == 'ILLUMINA' else nano_samples
     wildcard_constraints:
         tech='ILLUMINA'
     resources:
@@ -761,13 +763,13 @@ rule aggregate_readcounts_illumina:
         2
     run:
         readcounts = []
-        for i, sampleid in enumerate(nonredundant_ilmn_samples):
+        for i, sampleid in enumerate(params.samples):
             with open(input.minlen_rc[i], "r") as ifile_minlen, \
                  open(input.clean_rc[i], "r") as ifile_clean:
                 minlen_frags = int(ifile_minlen.readline())
                 clean_frags  = int(ifile_clean.readline())
-                rat = round(clean_frags / minlen_frags * 100, 2)
-                readcounts.append(f"{sampleid}\t{minlen_frags:.0f}\t{clean_frags:.0f}\t{rat}")
+                ratio = round(clean_frags / minlen_frags * 100, 2)
+                readcounts.append(f"{sampleid}\t{minlen_frags:.0f}\t{clean_frags:.0f}\t{ratio}")
         with open(output.rc, "w") as fp:
             print("sample", "fragment_count_minlength", "fragment_count_clean", "percentage_kept", sep = "\t", file = fp)
             for row in readcounts:
