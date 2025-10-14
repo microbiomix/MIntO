@@ -35,17 +35,22 @@ snakefile_name = print_versions.get_smk_filename()
 taxonomies_versioned = list()
 ilmn_samples = list()
 merged_illumina_samples = dict()
-nanopore_samples = list()
+nano_samples = list()
+merged_nanopore_samples = dict()
 
 ##############################################
 # Register composite samples
 ##############################################
 
-# Make list of illumina coassemblies, if ILLUMINA_MERGE_SAMPLES in config
+# Make list of merged illumina samples, if ILLUMINA_MERGE_SAMPLES in config
 if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
     for m in x:
         #print(" "+m)
         merged_illumina_samples.append(m)
+
+# Make list of merged nanopore samples, if NANOPORE_MERGE_SAMPLES in config
+if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES')):
+    merged_nanopore_samples = x
 
 ##############################################
 # Get sample list
@@ -61,20 +66,38 @@ if (x := validate_optional_key(config, 'ILLUMINA_SAMPLES')):
         if i in merged_illumina_samples.keys():
             ilmn_samples.remove(i)
 
+# Make list of nanopore samples, if NANOPORE_SAMPLES in config
+if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
+    check_input_directory(x, locations = ['4-hostfree', '3-minlength', '1-trimmed'])
+    nano_samples = x
+
+    # If it's composite sample, then don't need to see them until it gets merged later
+    for i in x:
+        if i in merged_nanopore_samples.keys():
+            nano_samples.remove(i)
+
 ##############################################
-# Make list of clean illumina samples after merging reps
+# Make list of clean illumina/nanopore samples after merging reps
 ##############################################
 
-ilmn_reps_to_delete = [j.strip() for m in merged_illumina_samples.values() for j in m.split('+')]
+# Create nonredundant list of individual and merged samples
+# If requested, remove individual contributors for some outputs
+
+ilmn_reps_to_delete = []
+if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
+    ilmn_reps_to_delete = [j.strip() for m in merged_illumina_samples.values() for j in m.split('+')]
 nonredundant_ilmn_samples = list(merged_illumina_samples.keys())
 for i in ilmn_samples:
     if i not in ilmn_reps_to_delete:
         nonredundant_ilmn_samples.append(i)
 
-# Make list of nanopore samples, if NANOPORE_SAMPLES in config
-if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
-    check_input_directory(x, locations = ['4-hostfree', '3-minlength', '1-trimmed'])
-    nanopore_samples = x
+nano_reps_to_delete = []
+if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
+    nano_reps_to_delete = [j.strip() for m in merged_nanopore_samples.values() for j in m.split('+')]
+nonredundant_nano_samples = list(merged_nanopore_samples.keys())
+for i in nano_samples:
+    if i not in nano_reps_to_delete:
+        nonredundant_nano_samples.append(i)
 
 ##############################################
 # Host genome filtering
@@ -91,7 +114,7 @@ if len(ilmn_samples) > 0:
     else:
         raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or BWA db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
 
-if len(nanopore_samples) > 0:
+if len(nano_samples) > 0:
     if os.path.exists(f"{host_genome_path}/minimap2_index/{host_genome_name}.mmi"):
         print(f"Host genome db {host_genome_path}/minimap2_index/{host_genome_name} will be used")
     elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
@@ -254,7 +277,7 @@ def readcounts_output():
                         wd = working_dir,
                         omics = omics)
                      )
-    if len(nanopore_samples) > 0:
+    if len(nano_samples) > 0:
         result.extend(expand("{wd}/output/2-qc/{omics}.NANOPORE.readcounts.txt",
                         wd = working_dir,
                         omics = omics)
@@ -262,16 +285,24 @@ def readcounts_output():
     return(result)
 
 def merged_sample_output():
+    result = list()
     if merged_illumina_samples:
-        result = expand("{wd}/{omics}/{location}/{sample}/{sample}.{pair}.fq.gz",
+        result.extend(expand("{wd}/{omics}/{location}/{sample}/{sample}.{pair}.fq.gz",
                         wd = working_dir,
                         omics = omics,
                         location = get_qc2_output_location(omics),
                         sample = merged_illumina_samples.keys(),
                         pair = ['1', '2'])
-        return(result)
-    else:
-        return()
+                     )
+    elif merged_nanopore_samples:
+        result.extend(expand("{wd}/{omics}/{location}/{sample}/{sample}.{pair}.fq.gz",
+                        wd = working_dir,
+                        omics = omics,
+                        location = get_qc2_output_location(omics),
+                        sample = merged_nanopore_samples.keys(),
+                        pair = 'nanopore')
+                     )
+    return(result)
 
 def next_step_config_yml_output():
     result = expand("{wd}/{omics}/{yaml}.yaml",
@@ -748,12 +779,12 @@ use rule aggregate_readcounts_illumina as aggregate_readcounts_nanopore with:
                                                 wd = wildcards.wd,
                                                 omics = wildcards.omics,
                                                 tech = wildcards.tech,
-                                                sample = nanopore_samples),
+                                                sample = nano_samples),
         clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
                                                 wd = wildcards.wd,
                                                 omics = wildcards.omics,
                                                 tech = wildcards.tech,
-                                                sample = nanopore_samples)
+                                                sample = nano_samples)
     wildcard_constraints:
         tech='NANOPORE'
 
@@ -763,22 +794,32 @@ use rule aggregate_readcounts_illumina as aggregate_readcounts_nanopore with:
 #       and create profiles for this composite sample.
 ###############################################################################################
 
+# Get the individual reps for the sample
+# And concat all the files for each rep into one
+def get_rep_files_for_composite_sample(wildcards):
+
+    files = []
+
+    # Make a list of input samples to merge
+    if wildcards.pair == 'nanopore':
+        reps = [x.strip() for x in merged_nanopore_samples[wildcards.merged_sample].split('+')]
+        platform = 'NANOPORE'
+    else:
+        reps = [x.strip() for x in merged_illumina_samples[wildcards.merged_sample].split('+')]
+        platform = 'ILLUMINA'
+
+    # Find the final fq files for them
+    for x in reps:
+        files.extend(get_final_fastq_one_end(wildcards.wd, wildcards.omics, x, stage='QC_2', pair=wildcards.pair, seq_platform=platform))
+
+    return(files)
+
 if merged_illumina_samples:
 
     ruleorder: merge_fastqs_for_composite_samples > qc2_host_filter_illumina
 
     if omics == 'metaT':
         ruleorder: merge_fastqs_for_composite_samples > qc2_filter_rRNA
-
-    # Get the individual reps for the sample
-    # And concat all the files for each rep into one
-    def get_rep_files_for_composite_sample(wildcards):
-
-        files = []
-        reps = [x.strip() for x in merged_illumina_samples[wildcards.merged_sample].split('+')]
-        for x in reps:
-            files.extend(get_final_fastq_one_end(wildcards.wd, wildcards.omics, x, stage='QC_2', pair=wildcards.pair))
-        return(files)
 
     # Merge files for a given sample from all its reps
     # Restrict it to only those appearing in ILLUMINA_MERGE_SAMPLES dict in config file
@@ -792,6 +833,33 @@ if merged_illumina_samples:
             "minimal"
         wildcard_constraints:
             merged_sample = '|'.join(merged_illumina_samples.keys()),
+            location      = r'5-1-sortmerna|4-hostfree'
+        shell:
+            """
+            cat {input.fastq} > combined.fq.gz
+            rsync -a combined.fq.gz {output.fastq}
+            """
+
+if merged_nanopore_samples:
+
+    ruleorder: merge_fastqs_for_composite_samples > qc2_host_filter_nanopore
+
+    if omics == 'metaT':
+        ruleorder: merge_fastqs_for_composite_samples > qc2_filter_rRNA
+
+    # Merge files for a given sample from all its reps
+    # Restrict it to only those appearing in ILLUMINA_MERGE_SAMPLES dict in config file
+    rule merge_fastqs_for_composite_samples:
+        localrule: True
+        input:
+            fastq=get_rep_files_for_composite_sample
+        output:
+            fastq="{wd}/{omics}/{location}/{merged_sample}/{merged_sample}.{pair}.fq.gz"
+        shadow:
+            "minimal"
+        wildcard_constraints:
+            merged_sample = '|'.join(merged_nanopore_samples.keys()),
+            pair          = 'nanopore',
             location      = r'5-1-sortmerna|4-hostfree'
         shell:
             """
@@ -1145,28 +1213,17 @@ def get_qc2_assembly_config_table(wildcards):
     else:
         return(metadata)
 
-rule qc2_filter_config_yml_assembly:
+rule assembly_config_core:
     localrule: True
     input:
-        tax=lambda wildcards: expand("{wd}/output/6-taxa_profile/{omics}.{taxonomy}.tsv",
-                                    wd = wildcards.wd,
-                                    omics = wildcards.omics,
-                                    taxonomy = taxonomies_versioned),
-        metadata=metadata,
-        table=get_qc2_assembly_config_table
+        metadata=metadata
     output:
-        config_file="{wd}/{omics}/assembly.yaml"
-    params:
-        sample_list = nonredundant_ilmn_samples,
-        sample_string = ', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
-        merge_illumina_samples_directive = '\n'.join([" {} : {}".format(i, merged_illumina_samples[i]) for i in merged_illumina_samples.keys()])
+        config_file=temp("{wd}/{omics}/assembly.yaml.core")
     resources:
         mem=2
     threads: 2
     log:
-        "{wd}/logs/{omics}/config_yml_assembly.log"
-    conda:
-        minto_dir + "/envs/r_pkgs.yml"
+        "{wd}/logs/{omics}/config_yml_assembly.core.log"
     shell:
         """
         cat > {output} <<___EOF___
@@ -1302,14 +1359,33 @@ LOCAL_DATABASE_CACHE_DIR: None
 #
 #HYBRID:
 
-# NANOPORE_SAMPLES section:
-# -----------------
-# List of nanopore samples that will be assembled individually using MetaFlye.
-#
-#NANOPORE_SAMPLES:
+___EOF___
+"""
+
+rule assembly_config_illumina:
+    localrule: True
+    input:
+        metadata=metadata,
+        table=get_qc2_assembly_config_table
+    output:
+        config_file=temp("{wd}/{omics}/assembly.yaml.illumina")
+    params:
+        sample_list = nonredundant_ilmn_samples,
+        sample_string = ', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
+        merge_illumina_samples_directive = '\n'.join([" {} : {}".format(i, merged_illumina_samples[i]) for i in merged_illumina_samples.keys()])
+    resources:
+        mem=2
+    threads: 2
+    log:
+        "{wd}/logs/{omics}/config_yml_assembly.illumina.log"
+    conda:
+        minto_dir + "/envs/r_pkgs.yml"
+    shell:
+        """
+        cat > {output} <<___EOF___
 
 ######################
-# Optionally, do you want to merge replicates or make pseudo samples
+# Optionally, if you want to merge replicates or make pseudo samples
 # E.g:
 # ILLUMINA_MERGE_SAMPLES:
 #  sample1: rep1a+rep1b+rep1c
@@ -1347,7 +1423,7 @@ ILLUMINA_SAMPLES:
 $(for i in {params.sample_list}; do echo "- '$i'"; done)
 
 ###############################
-# COASSEMBLY section:
+# ILLUMINA COASSEMBLY section:
 ###############################
 
 # If enable_COASSEMBLY is "yes", MEGAHIT coassembly will be performed using the following definitions.
@@ -1357,8 +1433,8 @@ $(for i in {params.sample_list}; do echo "- '$i'"; done)
 # Memory per coassembly is calculated to be 10G per sample in the coassembly.
 # Please make sure that there is enough RAM on the server.
 #
-enable_COASSEMBLY: no
-COASSEMBLY:
+enable_ILLUMINA_COASSEMBLY: no
+ILLUMINA_COASSEMBLY:
   'Full': $(echo {params.sample_list} | sed 's/ /+/g')
 ___EOF___
 
@@ -1394,6 +1470,154 @@ ___EOF___
 fi
 
         echo {params.sample_list} >& {log}
+        """
+
+rule assembly_config_nanopore:
+    localrule: True
+    input:
+        metadata=metadata,
+        table=get_qc2_assembly_config_table
+    output:
+        config_file=temp("{wd}/{omics}/assembly.yaml.nanopore")
+    params:
+        sample_list = nonredundant_nano_samples,
+        sample_string = ', '.join(["'{}'".format(i) for i in nonredundant_nano_samples]),
+        merge_nanopore_samples_directive = '\n'.join([" {} : {}".format(i, merged_nanopore_samples[i]) for i in merged_nanopore_samples.keys()])
+    resources:
+        mem=2
+    threads: 2
+    log:
+        "{wd}/logs/{omics}/config_yml_assembly.nanopore.log"
+    conda:
+        minto_dir + "/envs/r_pkgs.yml"
+    shell:
+        """
+        cat > {output} <<___EOF___
+
+######################
+# Optionally, if you want to merge replicates or make pseudo samples
+# E.g:
+# NANOPORE_MERGE_SAMPLES:
+#  sample1: rep1a+rep1b+rep1c
+#  sample2: rep2a+rep2b+rep2c
+#
+# The above directive will make 2 new composite or pseudo samples at the end of QC_2.
+# Imagine you had triplicates for sample1 named as rep1a, rep1b and rep1c.
+# And likewise for sample2. The directive above will:
+#     - combine 3 samples (rep1a, rep1b and rep1c)into a new sample called 'sample1'.
+#     - combine 3 samples (rep2a, rep2b and rep2c)into a new sample called 'sample2'.
+# For all subsequent steps, namely:
+#     - profiling (done by QC_2.smk),
+#     - assembly (done by assembly.smk),
+#     - binning (done by binning_preparation.smk and mags_generation.smk),
+# you can just use 'sample2' instead of the replicates rep2a, rep2b and rep2c in the yaml files.
+# Please note that METADATA file must have an entry for 'sample2' as well,
+# otherwise QC_2 step will fail.
+# Having extra entries in METADATA file does not affect you in any way.
+# Therefore, it is safe to have metadata recorded for
+# rep2a, rep2b, rep2c, sample2 from the beginning.
+######################
+
+NANOPORE_MERGE_SAMPLES:
+{params.merge_nanopore_samples_directive}
+
+# NANOPORE_SAMPLES section:
+# -----------------
+# List of nanopore samples that will be assembled individually using MetaSPAdes.
+#
+# E.g.:
+# - I1
+# - I2
+#
+NANOPORE_SAMPLES:
+$(for i in {params.sample_list}; do echo "- '$i'"; done)
+
+###############################
+# NANOPORE COASSEMBLY section:
+###############################
+
+# If enable_COASSEMBLY is "yes", MEGAHIT coassembly will be performed using the following definitions.
+# Each coassembly is named in the LHS, and corresponding nanopore sample(s) are in RHS (delimited by '+').
+# One coassembly will be performed for each line.
+# E.g. 'Subject1: I3+I4' will result in 1 coassembly: 'Subject1' using I3 and I4 data.
+# Memory per coassembly is calculated to be 10G per sample in the coassembly.
+# Please make sure that there is enough RAM on the server.
+#
+enable_NANOPORE_COASSEMBLY: no
+NANOPORE_COASSEMBLY:
+  'Full': $(echo {params.sample_list} | sed 's/ /+/g')
+___EOF___
+
+        R --vanilla --silent --no-echo >> {output} <<___EOF___
+library(dplyr)
+metadata <- read.table('{input.metadata}', sep="\\t", header=TRUE) %>%
+    as.data.frame() %>%
+    select(sample, {coas_factor}) %>%
+    filter(sample %in% c({params.sample_string})) %>%
+    group_by({coas_factor}) %>%
+    filter(n() > 1) %>%
+    mutate(co_asm = paste(sample, collapse = "+")) %>%
+    select(-sample) %>%
+    slice(1) %>%
+    mutate({coas_factor}=paste0("  '", {coas_factor}, "'"))
+write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
+___EOF___
+
+if [[ "metaG" == "{wildcards.omics}" ]]; then
+        R --vanilla --silent --no-echo >> {output} <<___EOF___
+library(dplyr)
+metadata <- read.table('{input.table}', sep="\\t", header=TRUE) %>%
+    as.data.frame() %>%
+    select(sample, clustering) %>%
+    group_by(clustering) %>%
+    filter(n() > 1) %>%
+    mutate(co_asm = paste(sample, collapse = "+")) %>%
+    select(-sample) %>%
+    slice(1) %>%
+    mutate(clustering=paste0("  SCL", clustering))
+write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
+___EOF___
+fi
+
+        echo {params.sample_list} >& {log}
+        """
+
+def processing_done(wildcards):
+    wd = wildcards.wd
+    omics = wildcards.omics
+
+    results = list()
+    results.append(f"{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt")
+    if len(nano_samples) > 0:
+        results.append(f"{wd}/output/2-qc/{omics}.NANOPORE.readcounts.txt")
+    return(results)
+
+def get_assembly_config_pieces(wildcards):
+    wd = wildcards.wd
+    omics = wildcards.omics
+
+    results = list()
+    results.append(f"{wd}/{omics}/assembly.yaml.core")
+    results.append(f"{wd}/{omics}/assembly.yaml.illumina")
+    if len(nano_samples) > 0:
+        results.append(f"{wd}/{omics}/assembly.yaml.nanopore")
+    return(results)
+
+rule qc2_filter_config_yml_assembly:
+    localrule: True
+    input:
+        ready  = processing_done,
+        pieces = get_assembly_config_pieces,
+    output:
+        config_file="{wd}/{omics}/assembly.yaml"
+    resources:
+        mem=2
+    threads: 1
+    log:
+        "{wd}/logs/{omics}/config_yml_assembly.log"
+    shell:
+        """
+        cat {input.pieces} > {output} 
         """
 
 ###############################################################################################
