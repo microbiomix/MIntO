@@ -137,15 +137,50 @@ if (x := validate_required_key(config, 'ILLUMINA_SAMPLES')):
                     raise Exception(f"ERROR: {sampleid} is not found under {raw_dir_ilmn} with suffix {ilmn_suffix[0]}.")
 
 # Make list of nanopore samples, if NANOPORE_SAMPLES in config
-nanopore_samples = list()
+nano_samples = list()
 if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
     raw_dir_nanopore = validate_required_key(config, 'NANOPORE_raw_reads_dir')
     for sampleid in x:
         if sampleid_valid_check(sampleid):
             if sample_existence_check(raw_dir_nanopore, sampleid, seq_platform='NANOPORE'):
-                nanopore_samples.append(sampleid)
+                nano_samples.append(sampleid)
             else:
                 raise Exception(f"ERROR: {sampleid} is not found under {raw_dir_nanopore} with suffix {nanopore_suffix}.")
+
+##############################################
+# Register composite samples
+##############################################
+
+# Make list of merged illumina samples, if ILLUMINA_MERGE_SAMPLES in config
+merged_illumina_samples = dict()
+if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
+    for m in x:
+        merged_illumina_samples.append(m)
+
+# If it's composite sample, then don't need to see them until it gets merged later
+x = ilmn_samples
+for i in x:
+    if i in merged_illumina_samples.keys():
+        ilmn_samples.remove(i)
+
+ilmn_remove_merged_samples = False
+if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
+    ilmn_remove_merged_samples = x
+
+# Make list of merged nanopore samples, if NANOPORE_MERGE_SAMPLES in config
+merged_nanopore_samples = dict()
+if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES')):
+    merged_nanopore_samples = x
+
+# If it's composite sample, then don't need to see them until it gets merged later
+x = nano_samples
+for i in x:
+    if i in merged_nanopore_samples.keys():
+        nano_samples.remove(i)
+
+nano_remove_merged_samples = False
+if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
+    nano_remove_merged_samples = x
 
 # Define all the outputs needed by target 'all'
 
@@ -169,11 +204,11 @@ def qc1_config_yml_output():
 
 def qc1_nanopore_output():
     result = []
-    if len(nanopore_samples) > 0:
+    if len(nano_samples) > 0:
         result = expand("{wd}/{omics}/1-trimmed/{sample}/{sample}.nanopore.fq.gz",
                         wd = working_dir,
                         omics = omics,
-                        sample = nanopore_samples)
+                        sample = nano_samples)
     return(result)
 
 rule all:
@@ -247,7 +282,7 @@ rule initial_fastqc:
         """
         time (
             fastqc --noextract -f fastq -t {threads} -q -o {params.outdir} {input.read_fw} {input.read_rv} && \
-        echo "Fastqc done" > {output.flag} 
+        echo "Fastqc done" > {output.flag}
         ) >& {log}
         """
 
@@ -630,17 +665,14 @@ rule filter_nanopore_reads:
 # Generate configuration yml file for the next step in pre-processing of metaG and metaT data
 ##########################################################################################################
 
-rule qc2_config_yml_file:
+rule qc2_config_yml_core:
     localrule: True
     input:
         cutoff_file=rules.qc1_cumulative_read_len_plot.output.cutoff_file
     output:
-        config_file="{wd}/{omics}/QC_2.yaml"
-    params:
-        trim_threads=TRIMMOMATIC_threads,
-        trim_memory=TRIMMOMATIC_memory
+        config_file=temp("{wd}/{omics}/QC_2.yaml.core")
     log:
-        "{wd}/logs/{omics}/qc2_config_yml_file.log"
+        "{wd}/logs/{omics}/qc2_config_yml_file.core.log"
     shell:
         """
         cat > {output.config_file} <<___EOF___
@@ -663,6 +695,7 @@ METADATA: {metadata}
 #########################
 
 ILLUMINA_READ_minlen: $(cat {input.cutoff_file})
+NANOPORE_READ_minlen: 500
 
 #########################
 # Host genome filtering
@@ -757,6 +790,29 @@ PLOT_time:
 COAS_factor:
 
 ######################
+# Input data
+######################
+
+___EOF___
+        """
+
+rule qc2_config_yml_file_illumina:
+    localrule: True
+    input:
+        cutoff_file=rules.qc1_cumulative_read_len_plot.output.cutoff_file
+    output:
+        config_file=temp("{wd}/{omics}/QC_2.yaml.illumina")
+    params:
+        sample_list = ilmn_samples,
+        remove_merged_samples = ilmn_remove_merged_samples,
+        merge_samples_directive = '\n'.join([" {} : {}".format(i, merged_illumina_samples[i]) for i in merged_illumina_samples.keys()])
+    log:
+        "{wd}/logs/{omics}/qc2_config_yml_file.illumina.log"
+    shell:
+        """
+        cat > {output.config_file} <<___EOF___
+
+######################
 # Optionally, do you want to merge replicates or make pseudo samples
 # E.g:
 # ILLUMINA_MERGE_SAMPLES:
@@ -769,7 +825,7 @@ COAS_factor:
 #     - combine 3 samples (rep1a, rep1b and rep1c)into a new sample called 'sample1'.
 #     - combine 3 samples (rep2a, rep2b and rep2c)into a new sample called 'sample2'.
 # For all subsequent steps, namely:
-#     - profiling (done within this snakemake script),
+#     - profiling (done by QC_2.smk),
 #     - assembly (done by assembly.smk),
 #     - binning (done by binning_preparation.smk and mags_generation.smk),
 # you can just use 'sample2' instead of the replicates rep2a, rep2b and rep2c in the yaml files.
@@ -780,12 +836,9 @@ COAS_factor:
 # rep2a, rep2b, rep2c, sample2 from the beginning.
 ######################
 
-#ILLUMINA_MERGE_SAMPLES:
-
-
-######################
-# Input data
-######################
+ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS: {params.remove_merged_samples}
+ILLUMINA_MERGE_SAMPLES:
+{params.merge_samples_directive}
 
 # ILLUMINA_SAMPLES section:
 # -----------------
@@ -794,9 +847,56 @@ COAS_factor:
 # E.g.:
 # - S1
 # - S2
-#
+
 ILLUMINA_SAMPLES:
-$(for i in {ilmn_samples}; do echo "- '$i'"; done)
+$(for i in {params.sample_list}; do echo "- '$i'"; done)
+
+___EOF___
+        echo "ILLUMINA_SAMPLES: {params.sample_list}" >& {log}
+    """
+
+rule qc2_config_yml_file_nanopore:
+    localrule: True
+    input:
+        cutoff_file=rules.qc1_cumulative_read_len_plot.output.cutoff_file
+    output:
+        config_file=temp("{wd}/{omics}/QC_2.yaml.nanopore")
+    params:
+        sample_list = nano_samples,
+        remove_merged_samples = ilmn_remove_merged_samples,
+        merge_samples_directive = '\n'.join([" {} : {}".format(i, merged_nanopore_samples[i]) for i in merged_nanopore_samples.keys()])
+    log:
+        "{wd}/logs/{omics}/qc2_config_yml_file.nanopore.log"
+    shell:
+        """
+        cat > {output.config_file} <<___EOF___
+######################
+# Optionally, if you want to merge replicates or make pseudo samples
+# E.g:
+# NANOPORE_MERGE_SAMPLES:
+#  sample1: rep1a+rep1b+rep1c
+#  sample2: rep2a+rep2b+rep2c
+#
+# The above directive will make 2 new composite or pseudo samples at the end of QC_2.
+# Imagine you had triplicates for sample1 named as rep1a, rep1b and rep1c.
+# And likewise for sample2. The directive above will:
+#     - combine 3 samples (rep1a, rep1b and rep1c)into a new sample called 'sample1'.
+#     - combine 3 samples (rep2a, rep2b and rep2c)into a new sample called 'sample2'.
+# For all subsequent steps, namely:
+#     - profiling (done by QC_2.smk),
+#     - assembly (done by assembly.smk),
+#     - binning (done by binning_preparation.smk and mags_generation.smk),
+# you can just use 'sample2' instead of the replicates rep2a, rep2b and rep2c in the yaml files.
+# Please note that METADATA file must have an entry for 'sample2' as well,
+# otherwise QC_2 step will fail.
+# Having extra entries in METADATA file does not affect you in any way.
+# Therefore, it is safe to have metadata recorded for
+# rep2a, rep2b, rep2c, sample2 from the beginning.
+######################
+
+NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS: {params.remove_merged_samples}
+NANOPORE_MERGE_SAMPLES:
+{params.merge_samples_directive}
 
 # NANOPORE_SAMPLES section:
 # -----------------
@@ -805,18 +905,37 @@ $(for i in {ilmn_samples}; do echo "- '$i'"; done)
 # E.g.:
 # - S1
 # - S2
-#
-___EOF___
 
-
-# NANOPORE_SAMPLES sample list
-
-        if [ ! -z "{nanopore_samples}" ]; then
-            cat >> {output.config_file} <<___EOF___
 NANOPORE_SAMPLES:
-$(for i in {nanopore_samples}; do echo "- '$i'"; done)
+$(for i in {params.sample_list}; do echo "- '$i'"; done)
 ___EOF___
-        fi
 
-        echo -e "ILLUMINA_SAMPLES: {ilmn_samples}\\nNANOPORE_SAMPLES: {nanopore_samples}" >& {log}
+        echo "NANOPORE_SAMPLES: {params.sample_list}" >& {log}
+        """
+
+def get_qc2_config_pieces(wildcards):
+    wd = wildcards.wd
+    omics = wildcards.omics
+
+    results = list()
+    results.append(f"{wd}/{omics}/QC_2.yaml.core")
+    results.append(f"{wd}/{omics}/QC_2.yaml.illumina")
+    if len(nano_samples) > 0:
+        results.append(f"{wd}/{omics}/QC_2.yaml.nanopore")
+    return(results)
+
+rule qc2_filter_config_yml_assembly:
+    localrule: True
+    input:
+        pieces = get_qc2_config_pieces,
+    output:
+        config_file="{wd}/{omics}/QC_2.yaml"
+    resources:
+        mem=2
+    threads: 1
+    log:
+        "{wd}/logs/{omics}/config_yml_QC_2.log"
+    shell:
+        """
+        cat {input.pieces} > {output}
         """
