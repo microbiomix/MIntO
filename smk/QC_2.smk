@@ -508,6 +508,11 @@ use rule qc2_host_filter_illumina as qc2_host_filter_illumina_metaT with:
         omics='metaT'
 
 # minimap2 mem memory is estimated as 1.2 bytes per base in database (quick check with ONT files).
+# minimap2 will write the comments in the fastq header if given '-y' argument
+# But this will be a comment in the 12th field
+# If ONT data has annotation about the technology using "runid=.*" format, we convert it into SAM field 'Xn'
+# Then we ask 'samtools fastq to preserve Xn field in the header
+# All this is to enable medaka_consensus to autodetect the right model for polishing
 rule qc2_host_filter_nanopore:
     input:
         ont=rules.qc2_length_nanopore.output.ont,
@@ -530,9 +535,10 @@ rule qc2_host_filter_nanopore:
     shell:
         """
         time (
-                minimap2 -ax map-ont -t {threads} -v 3 {input.mmi} {input.ont} \
+                minimap2 -y -ax map-ont -t {threads} -v 3 {input.mmi} {input.ont} \
+                  | sed "s/runid=/Xn:Z:runid=/" \
                   | msamtools filter -S -l 300 --invert --keep_unmapped -bu - \
-                  | samtools fastq - \
+                  | samtools fastq -T Xn - \
                   | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
                   | gzip -c \
                   > hostfree.fq.gz
