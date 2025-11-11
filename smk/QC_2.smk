@@ -960,7 +960,7 @@ if omics == 'metaG':
 ##########################################################################################################
 
 def get_qc2_assembly_config_table(wildcards):
-    if wildcards.omics == "metaG":
+    if wildcards.omics == "metaG" and sourmash_M > 0:
         return(expand("{wd}/output/6-1-smash/{omics}.sourmash_clusters.tsv",
                     wd = wildcards.wd,
                     omics = wildcards.omics))
@@ -1014,7 +1014,6 @@ MAIN_factor: {main_factor}
 #
 METASPADES_qoffset: auto
 METASPADES_threads: 16
-METASPADES_memory: 10
 METASPADES_hybrid_max_k: 99
 METASPADES_illumina_max_k: 99
 
@@ -1065,6 +1064,9 @@ SPADES_CONTIGS_OR_SCAFFOLDS: contigs
 
 # minimum contig/scaffold fasta length
 MIN_FASTA_LENGTH: 2500
+
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: strobealign
 
 # maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
 MAX_RAM_GB_PER_JOB: 180
@@ -1195,7 +1197,7 @@ metadata <- read.table('{input.metadata}', sep="\\t", header=TRUE) %>%
 write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
 ___EOF___
 
-if [[ "metaG" == "{wildcards.omics}" ]]; then
+if [[ ("metaG" == "{wildcards.omics}") && ({input.table} != {input.metadata}) ]]; then
         R --vanilla --silent --no-echo >> {output} <<___EOF___
 library(dplyr)
 metadata <- read.table('{input.table}', sep="\\t", header=TRUE) %>%

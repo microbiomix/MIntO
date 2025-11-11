@@ -14,6 +14,7 @@ import os.path
 
 GLOBAL_CONFIG_KEYTYPES = {
     'abundance_normalization' : str,
+    'ALIGNER_type' : str,
     'alignment_identity' : int,
     'ANNOTATION_file' : 'file',
     'ANNOTATION_ids' : list,
@@ -66,7 +67,6 @@ GLOBAL_CONFIG_KEYTYPES = {
     'METASPADES_custom_build' : 'file',
     'METASPADES_hybrid_max_k' : int,
     'METASPADES_illumina_max_k' : int,
-    'METASPADES_memory' : int,
     'METASPADES_qoffset' : str,
     'METASPADES_threads' : int,
     'MIN_KEGG_PATHWAY_COMPLETENESS' : int,

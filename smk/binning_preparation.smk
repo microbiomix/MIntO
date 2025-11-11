@@ -109,6 +109,14 @@ if (x := validate_optional_key(config, 'SPADES_CONTIGS_OR_SCAFFOLDS')):
         x += 's'
     spades_contigs_or_scaffolds = x
 
+# Aligner type for co-abundance estimation
+
+valid_aligner_types = ['bwa', 'strobealign']
+ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
+check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
+
+# Aligner resources
+
 BWA_threads = validate_required_key(config, 'BWA_threads')
 SAMTOOLS_sort_perthread_memgb = validate_required_key(config, 'SAMTOOLS_sort_perthread_memgb')
 
@@ -178,20 +186,24 @@ include: minto_dir + '/site/cluster_def.py'
 
 # Cluster-aware bwa-index rules
 
-include: 'include/bwa_index_wrapper.smk'
+if ALIGNER_type == 'bwa':
+    include: 'include/bwa_index_wrapper.smk'
+else:
+    include: 'include/sba_index_wrapper.smk'
 
 # If BWA index clean-up requested, only do cleanup and nothing else
 if CLUSTER_NODES != None and validate_optional_key(config, 'CLEAN_BWA_INDEX'):
 
-    print("NOTE: BWA index cleanup mode requested.")
+    print("NOTE: Index cleanup mode requested.")
 
     def clean_bwa_index():
         # Get the cleanup flag for index files per scaf_type
-        files = expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/BWA_index.batches.cleaning.done",
+        files = expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/{aligner}_index.batches.cleaning.done",
                             wd         = working_dir,
                             omics      = omics,
                             scaf_type  = SCAFFOLDS_type,
-                            min_length = MIN_FASTA_LENGTH)
+                            min_length = MIN_FASTA_LENGTH,
+                            aligner = "BWA" if ALIGNER_type == "bwa" else "sba")
         return(files)
 
     rule all:
@@ -401,7 +413,7 @@ def get_contig_bwa_index(wildcards):
 # Once mapping succeeds, run coverM to get contig depth for this bam
 
 ###############################################################################################
-# Map reads to contig/scaffold batches
+# BWA: Map reads to contig/scaffold batches
 ###############################################################################################
 
 rule set_max_mapcount:
@@ -423,14 +435,14 @@ rule set_max_mapcount:
         df.to_csv(output[0], sep = "\t", columns = ['sample', 'binprep_limit'], index=False)
 
 
-rule map_contigs_BWA_depth_coverM:
+rule map_BWA_depth_coverM:
     input:
         bwaindex=get_contig_bwa_index,
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
         maxfrag=rules.set_max_mapcount.output
     output:
-        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.depth.txt.gz")
+        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.bwa.depth.txt.gz")
     shadow:
         "minimal"
     log:
@@ -477,18 +489,95 @@ rule map_contigs_BWA_depth_coverM:
         ) >& {log}
         """
 
+###############################################################################################
+# StrobeAlign: Map reads to contig/scaffold batches
+###############################################################################################
+
+# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
+# Otherwise, return the original index files in project work_dir.
+def get_contig_sba_index(wildcards):
+
+    # Where are the index files?
+    if CLUSTER_NODES != None:
+        index_location = 'sba_index_local'
+    else:
+        index_location = 'sba_index'
+
+    # strobealign takes the fasta as input and derives the index name from it
+    files = expand("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/{location}/batch{batch}.fasta.gz",
+            wd         = wildcards.wd,
+            omics      = wildcards.omics,
+            scaf_type  = wildcards.scaf_type,
+            location   = index_location,
+            batch      = wildcards.batch,
+            min_length = wildcards.min_length)
+
+    # Return them
+    return(files)
+
+rule map_strobealign:
+    input:
+        fasta=get_contig_sba_index,
+        fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
+        rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
+        maxfrag=rules.set_max_mapcount.output
+    output:
+        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.strobealign.depth.txt.gz")
+    shadow:
+        "minimal"
+    log:
+        "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.sba.log"
+    wildcard_constraints:
+        batch    = r'\d+',
+        illumina = r'[^/]+'
+    resources:
+        mem = lambda wildcards, input, attempt: int(20 + 13*os.path.getsize(input.fasta[0])/1e9 + 20*(attempt-1)),
+    threads:
+        BWA_threads
+    conda:
+        minto_dir + "/envs/strobealign.yml"
+    shell:
+        """
+        mkdir -p $(dirname {output})
+        
+        max_mapped_fragcount=$(grep "^{wildcards.illumina}$(printf '\\t')" {input.maxfrag} | cut -f 2 )
+        
+        # Make named pipes if needed
+        if [[ $max_mapped_fragcount != "None" ]]; then
+            mkfifo {wildcards.illumina}.1.fq
+            mkfifo {wildcards.illumina}.2.fq
+            
+            max_mapped_fqlines=$(( ${{max_mapped_fragcount}} * 4))
+            zcat {input.fwd} | head -n $max_mapped_fqlines > {wildcards.illumina}.1.fq &
+            zcat {input.rev} | head -n $max_mapped_fqlines > {wildcards.illumina}.2.fq &
+            input_files="{wildcards.illumina}.1.fq {wildcards.illumina}.2.fq"
+        else
+            input_files="{input.fwd} {input.rev}"
+        fi
+        # fixed mean read length
+        time (strobealign -t {threads} -r 150 --use-index --aemb {input.fasta} $input_files > abundances.tsv
+              gzip -2 abundances.tsv
+              rsync -a abundances.tsv.gz {output.depth}
+        ) >& {log}
+        """
+
+###############################################################################################
+# Paste depths for individual samples
+###############################################################################################
+
 # Combine coverM depths from individual samples
 # Ignore columns ending with '-var'
 # Also ignore contigLen, totalAvgDepth
 rule colbind_sample_contig_depths_for_batch:
     input:
-        depths = lambda wildcards: expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.depth.txt.gz",
+        depths = lambda wildcards: expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz",
                                             wd = wildcards.wd,
                                             omics = wildcards.omics,
                                             scaf_type = wildcards.scaf_type,
                                             min_length = wildcards.min_length,
                                             batch = wildcards.batch,
-                                            illumina=ilmn_samples)
+                                            illumina=ilmn_samples,
+                                            mapper = ALIGNER_type)
     output:
         depths = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}.depth.txt.gz"),
         header = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}.header.txt.gz"),
@@ -516,30 +605,59 @@ rule colbind_sample_contig_depths_for_batch:
             df_list = list()
             logme(f, "INFO: reading file 0")
 
-            # Read first file into df
-            df = pd.read_csv(input.depths[0], header=0, sep = "\t", memory_map=True)
+            if ALIGNER_type == "bwa":
+                # Read first file into df
+                df = pd.read_csv(input.depths[0], header=0, sep = "\t", memory_map=True)
 
-            # Get md5 of first 2 columns
-            md5_first = hashlib.md5(pickle.dumps(df.iloc[:, 0:2])).hexdigest() # make hash for seqname and seqlen
+                # Get md5 of first 2 columns
+                md5_first = hashlib.md5(pickle.dumps(df.iloc[:, 0:2])).hexdigest() # make hash for seqname and seqlen
 
-            # Drop columns ending in '-var' as this is not used by vamb, and add to df_list
-            df_list.append(df.drop(df.filter(regex='^contigLen$|^totalAvgDepth$|-var$').columns, axis='columns'))
+                # Drop columns ending in '-var' as this is not used by vamb, and add to df_list
+                df_list.append(df.drop(df.filter(regex='^contigLen$|^totalAvgDepth$|-var$').columns, axis='columns'))
 
-            # Process remaining files
-            for i in range(1, len(input.depths)):
-                logme(f, "INFO: reading file {}".format(i))
+                # Process remaining files
+                for i in range(1, len(input.depths)):
+                    logme(f, "INFO: reading file {}".format(i))
 
-                # Read next file
-                df = pd.read_csv(input.depths[i], header=0, sep = "\t", memory_map=True)
+                    # Read next file
+                    df = pd.read_csv(input.depths[i], header=0, sep = "\t", memory_map=True)
 
-                # Make sure md5 matches
-                md5_next = hashlib.md5(pickle.dumps(df.iloc[:, 0:2])).hexdigest()
-                if md5_next != md5_first:
-                    raise Exception("colbind_sample_contig_depths_for_batch: Sequences don't match between {} and {}".format(input.depths[0], input.depths[i]))
+                    # Make sure md5 matches
+                    md5_next = hashlib.md5(pickle.dumps(df.iloc[:, 0:2])).hexdigest()
+                    if md5_next != md5_first:
+                        raise Exception("colbind_sample_contig_depths_for_batch: Sequences don't match between {} and {}".format(input.depths[0], input.depths[i]))
 
-                # Drop common columns and the '-var' column
-                df_list.append(df.drop(df.filter(regex='^contigName$|^contigLen$|^totalAvgDepth$|-var$').columns, axis='columns'))
+                    # Drop common columns and the '-var' column
+                    df_list.append(df.drop(df.filter(regex='^contigName$|^contigLen$|^totalAvgDepth$|-var$').columns, axis='columns'))
+            else:
+                # Read first aemb into df
+                filename = input.depths[0].split("/")[-1]
+                colnames = ['contigname', filename]
+                df = pd.read_csv(input.depths[0], header=None, sep = "\t", memory_map=True, names = colnames)
 
+                # Get md5 of first column
+                md5_first = hashlib.md5(pickle.dumps(df.iloc[:, 0])).hexdigest()
+
+                # Drop columns ending in '-var' as this is not used by vamb, and add to df_list
+                df_list.append(df)
+
+                # Process remaining files
+                for i in range(1, len(input.depths)):
+                    logme(f, "INFO: reading file {}".format(i))
+
+                    # Read next file
+                    filename = input.depths[i].split("/")[-1]
+                    colnames = ['contigname', filename]
+                    df = pd.read_csv(input.depths[i], header=None, sep = "\t", memory_map=True, names = colnames)
+
+                    # Make sure md5 matches
+                    md5_next = hashlib.md5(pickle.dumps(df.iloc[:, 0])).hexdigest()
+                    if md5_next != md5_first:
+                        raise Exception("colbind_sample_contig_depths_for_batch: Sequences don't match between {} and {}".format(input.depths[0], input.depths[i]))
+
+                    # Drop common column(s) column
+                    df_list.append(df.drop(df.filter(regex='^contigname$').columns, axis='columns'))
+                    
             # Concat df_list into single df
             logme(f, "INFO: concatenating {} files".format(len(input.depths)))
             df = pd.concat(df_list, axis=1, ignore_index=False, copy=False, sort=False)
@@ -554,6 +672,7 @@ rule colbind_sample_contig_depths_for_batch:
             logme(f, "INFO: copying depth file to final output")
             shutil.copy2('depths.gz', output.depths)
             logme(f, "INFO: done")
+
 
 ##################################################
 # Combining across batches within a scaffold_type
@@ -770,11 +889,12 @@ rule make_abundance_npz:
 def get_flags_to_clean_bwaindex_mirror_for_scaf_type(wildcards):
     chkpnt_output = checkpoints.make_assembly_batches.get(**wildcards).output[0]
     batches       = glob_wildcards(os.path.join(chkpnt_output, "batch{batch,\d+}.list")).batch
-    result        = expand("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/BWA_index/batch{batch}.fasta.gz.clustersync/cleaning.done",
+    result        = expand("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/{aligner}_index/batch{batch}.fasta.gz.clustersync/cleaning.done",
                             wd = wildcards.wd,
                             omics = wildcards.omics,
                             scaf_type = wildcards.scaf_type,
                             min_length = wildcards.min_length,
+                            aligner = "BWA" if ALIGNER_type == "bwa" else "sba",
                             batch = batches)
     return(result)
 
@@ -784,7 +904,7 @@ rule clean_bwaindex_mirror_for_scaf_type:
     input:
         fasta = get_flags_to_clean_bwaindex_mirror_for_scaf_type
     output:
-        temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/BWA_index.batches.cleaning.done")
+        temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/{aligner}_index.batches.cleaning.done")
     wildcard_constraints:
         min_length = r'\d+',
         scaf_type  = r'illumina_single|illumina_coas|illumina_single_nanopore|nanopore'

@@ -20,7 +20,6 @@ MAIN_factor: participant_ID2
 #
 METASPADES_qoffset: auto
 METASPADES_threads: 16
-METASPADES_memory: 10
 METASPADES_hybrid_max_k: 99
 METASPADES_illumina_max_k: 99
 
@@ -71,6 +70,9 @@ SPADES_CONTIGS_OR_SCAFFOLDS: contigs
 
 # minimum contig/scaffold fasta length
 MIN_FASTA_LENGTH: 2500
+
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: strobealign
 
 # maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
 MAX_RAM_GB_PER_JOB: 180

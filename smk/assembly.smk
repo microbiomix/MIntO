@@ -85,7 +85,6 @@ METASPADES_qoffset = validate_required_key(config, 'METASPADES_qoffset')
 check_allowed_values('METASPADES_qoffset', METASPADES_qoffset, ('auto', '33', '64'))
 
 METASPADES_threads = validate_required_key(config, 'METASPADES_threads')
-METASPADES_memory  = validate_required_key(config, 'METASPADES_memory')
 
 METASPADES_illumina_max_k = validate_required_key(config, 'METASPADES_illumina_max_k')
 check_number_is_odd('METASPADES_illumina_max_k', METASPADES_illumina_max_k)
@@ -226,7 +225,7 @@ rule correct_spadeshammer:
     params:
         qoffset = METASPADES_qoffset
     resources:
-        mem = lambda wildcards, attempt: attempt*METASPADES_memory
+        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.reads[0])*5.2e-8+ 50*(attempt-1))
     log:
         "{wd}/logs/{omics}/5-corrected-runs/{illumina}/{run}_spadeshammer.log"
     threads:
@@ -237,7 +236,9 @@ rule correct_spadeshammer:
         """
         mkdir -p $(dirname {output.fwd})
         time (
-            {spades_script} --only-error-correction -1 {input.reads[0]} -2 {input.reads[1]} -t {threads} -m {resources.mem} -o {wildcards.run} --phred-offset {params.qoffset}
+            rsync -a {input.reads[0]} {wildcards.run}.1.fq.gz
+            rsync -a {input.reads[1]} {wildcards.run}.2.fq.gz
+            {spades_script} --only-error-correction -1 {wildcards.run}.1.fq.gz -2 {wildcards.run}.2.fq.gz -t {threads} -m {resources.mem} -o {wildcards.run} --phred-offset {params.qoffset}
             rsync -a {wildcards.run}/corrected/{wildcards.run}.1.fq00.0_0.cor.fastq.gz {output.fwd}; rsync -a {wildcards.run}/corrected/{wildcards.run}.2.fq00.0_0.cor.fastq.gz {output.rev}
         ) >& {log}
         """
@@ -307,7 +308,7 @@ rule illumina_assembly_metaspades:
         asm_mode = "--meta",
         kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
     resources:
-        mem = lambda wildcards, attempt: attempt*METASPADES_memory
+        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.fwd)*8.8e-9+ 20*(attempt-1))
     log:
         "{wd}/logs/{omics}/7-assembly/{illumina}/k21-{maxk}/{illumina}_metaspades.log"
     threads:
@@ -317,7 +318,9 @@ rule illumina_assembly_metaspades:
     shell:
         """
         time (
-            {spades_script} {params.asm_mode} --only-assembler -1 {input.fwd} -2 {input.rev} -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
+            rsync -a {input.fwd} {wildcards.illumina}.1.fq.gz
+            rsync -a {input.rev} {wildcards.illumina}.2.fq.gz
+            {spades_script} {params.asm_mode} --only-assembler -1 {wildcards.illumina}.1.fq.gz -2 {wildcards.illumina}.2.fq.gz -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
             rsync -a outdir/contigs.fasta {output.cont_fa}
             rsync -a outdir/scaffolds.fasta {output.scaf_fa}
             rsync -a outdir/spades.log {output.asm_log}
@@ -351,7 +354,7 @@ rule hybrid_assembly_metaspades:
         asm_mode = "--meta",
         kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
     resources:
-        mem = lambda wildcards, attempt: attempt*METASPADES_memory
+        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.fwd)*8.8e-9+ 20*(attempt-1))
     log:
         "{wd}/logs/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/{nanopore}-{illumina}_metaspades.log"
     threads:

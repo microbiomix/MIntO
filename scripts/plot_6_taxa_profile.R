@@ -70,7 +70,8 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
                           max.overlaps = getOption("ggrepel.max.overlaps", default = 20)
                     )
   if (!is.null(shape)) {
-    PcoA_Sample_site_abundance_2 <- PcoA_Sample_site_abundance_2 + geom_point(aes(shape = as.factor(get(shape))), size = 2)
+    PcoA_Sample_site_abundance_2 <- PcoA_Sample_site_abundance_2 + geom_point(aes(shape = as.factor(get(shape))), size = 2) +
+      scale_shape_manual(values=c(0:25))
   } else {
     PcoA_Sample_site_abundance_2 <- PcoA_Sample_site_abundance_2 + geom_point(shape = 16, size = 2)
   }
@@ -258,7 +259,7 @@ dev.off()
 # otu_taxa_filt_df[(nrow(otu_taxa_filt_df) + 1), myNumCols] <- 1- colSums(otu_taxa_filt_df[, myNumCols], na.rm=TRUE)
 # otu_taxa_filt_df[is.na(otu_taxa_filt_df)] <- '-1'
 
-otu_taxa_melt <- melt(otu_table_df, id.vars=c("taxa_ID"))
+otu_taxa_melt <- reshape2::melt(otu_table_df, id.vars=c("taxa_ID"))
 otu_taxa_melt <- merge(taxa_table_df, otu_taxa_melt, by="taxa_ID")
 #colnames(otu_taxa_melt) <- c('taxa_ID', "kingdom", "phylum", "class", "order", "family", "genus", "mOTU", "short_name", "sample", "RA")
 
