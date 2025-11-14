@@ -51,6 +51,7 @@ GLOBAL_CONFIG_KEYTYPES = {
     'ILLUMINA' : [list, 'file', str],
     'ILLUMINA_suffix' : list,
     'MAG_omics' : str,
+    'ALIGNER_threads' : int,
     'MAIN_factor' : str,
     'MAX_RAM_GB_PER_JOB' : int,
     'MEGAHIT_custom' : [str, list],
@@ -130,6 +131,7 @@ GLOBAL_CONFIG_KEYTYPES = {
 ALIASES = {
     'READ_minlen' : ['TRIMMOMATIC_minlen'],
     'FASTP_adapters' : ['FASTP_adaptors'],
+    'ALIGNER_threads' : ['BWA_threads'],
     'TRIMMOMATIC_adaptors' : ['TRIMMOMATIC_adapters']
 }
 
