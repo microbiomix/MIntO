@@ -19,6 +19,10 @@ def get_file_size(f):
     else:
         return(1<<20)
 
+# Get file size in gb, 2^30 bytes
+def get_file_size_gb(f):
+    return(get_file_size(f)/(1<<30))
+
 #############################################
 # TSV table sizes
 #############################################
