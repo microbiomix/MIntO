@@ -11,13 +11,13 @@ Authors: Mani Arumugam
 #############################################
 
 # If file exists, return its size.
-# If not, return 1GB - this is placeholder for allowing --dry-run to work
+# If not, return 1MB - this is placeholder for allowing --dry-run to work
 def get_file_size(f):
     import os.path
     if os.path.exists(f):
         return(os.path.getsize(f))
     else:
-        return(1<<30)
+        return(1<<20)
 
 #############################################
 # TSV table sizes
