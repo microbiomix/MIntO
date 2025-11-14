@@ -17,7 +17,7 @@ def get_file_size(f):
     if os.path.exists(f):
         return(os.path.getsize(f))
     else:
-        return(1<<9)
+        return(1<<30)
 
 #############################################
 # TSV table sizes
