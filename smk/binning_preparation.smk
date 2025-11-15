@@ -17,6 +17,8 @@ NEED_PROJECT_VARIABLES = True
 include: 'include/cmdline_validator.smk'
 include: 'include/config_parser.smk'
 include: 'include/fasta_bam_helpers.smk'
+include: 'include/resources.smk'
+include: 'include/mapper_index_creation.smk'
 
 module print_versions:
     snakefile:
@@ -109,7 +111,9 @@ if (x := validate_optional_key(config, 'SPADES_CONTIGS_OR_SCAFFOLDS')):
         x += 's'
     spades_contigs_or_scaffolds = x
 
+###############################
 # Aligner type for co-abundance estimation
+###############################
 
 valid_aligner_types = ['bwa', 'strobealign']
 ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
@@ -119,6 +123,7 @@ check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
 
 BWA_threads = validate_required_key(config, 'BWA_threads')
 SAMTOOLS_sort_perthread_memgb = validate_required_key(config, 'SAMTOOLS_sort_perthread_memgb')
+local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
 ###############################
 # Make a list of assemblies to use
@@ -177,50 +182,14 @@ if (x := validate_optional_key(config, 'EXCLUDE_ASSEMBLY_TYPES')):
             print(f"Removing assembly_type={item} on request")
             SCAFFOLDS_type.remove(item)
 
-# Site customization for avoiding NFS traffic during I/O heavy steps such as mapping
-
-CLUSTER_NODES            = None
-CLUSTER_LOCAL_DIR        = None
-CLUSTER_WORKLOAD_MANAGER = None
-include: minto_dir + '/site/cluster_def.py'
-
-# Cluster-aware bwa-index rules
-
-if ALIGNER_type == 'bwa':
-    include: 'include/bwa_index_wrapper.smk'
-else:
-    include: 'include/sba_index_wrapper.smk'
-
-# If BWA index clean-up requested, only do cleanup and nothing else
-if CLUSTER_NODES != None and validate_optional_key(config, 'CLEAN_BWA_INDEX'):
-
-    print("NOTE: Index cleanup mode requested.")
-
-    def clean_bwa_index():
-        # Get the cleanup flag for index files per scaf_type
-        files = expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/{aligner}_index.batches.cleaning.done",
-                            wd         = working_dir,
-                            omics      = omics,
-                            scaf_type  = SCAFFOLDS_type,
-                            min_length = MIN_FASTA_LENGTH,
-                            aligner = "BWA" if ALIGNER_type == "bwa" else "sba")
-        return(files)
-
-    rule all:
-        input:
-            clean_bwa_index()
-        default_target: True
-
-else:
-
 # Define all the outputs needed by target 'all'
 
-    rule all:
-        input:
-            abundance   = f"{working_dir}/{omics}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.npz",
-            config_yaml = f"{working_dir}/{omics}/mags_generation.yaml",
-            versions    = print_versions.get_version_output(snakefile_name)
-        default_target: True
+rule all:
+    input:
+        abundance   = f"{working_dir}/{omics}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.npz",
+        config_yaml = f"{working_dir}/{omics}/mags_generation.yaml",
+        versions    = print_versions.get_version_output(snakefile_name)
+    default_target: True
 
 ###############################################################################################
 # Filter contigs from
@@ -376,44 +345,21 @@ rule write_assembly_batch_fasta:
             logme(f, "INFO: done")
 
 ################################################################################################
-# Create BWA index for the filtered contigs
+# Get mapper-specific index files for the filtered contigs
+# Details of which files are generated - in 'include/mapper_index_creation.smk'
 ################################################################################################
 
-# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
-# Otherwise, return the original index files in project work_dir.
-def get_contig_bwa_index(wildcards):
-
-    # Where are the index files?
-    if CLUSTER_NODES != None:
-        index_location = 'BWA_index_local'
-    else:
-        index_location = 'BWA_index'
-
-    # Get all the index files!
-    files = expand("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/{location}/batch{batch}.fasta.gz.{ext}",
+def get_assembly_batch_index_files(wildcards):
+    fasta = "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batch{batch}.fasta.gz".format(
             wd         = wildcards.wd,
             omics      = wildcards.omics,
             scaf_type  = wildcards.scaf_type,
-            location   = index_location,
-            batch      = wildcards.batch,
             min_length = wildcards.min_length,
-            ext        = ['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac'])
-
-    # Return them
-    return(files)
-
-# Maps reads to contig-set using bwa2
-# Baseline memory usage is:
-#   BWA : 3.1 bytes per base in DNA database (regression: mem = 5.556e+09 + 3.011*input)
-#   Sort: using config values: SAMTOOLS_sort_threads and SAMTOOLS_sort_perthread_memgb;
-#   Total = BWA + Sort
-#   E.g. 25GB for BWA, 2 sort threads and 10GB per-thread = 45GB
-# If an attempt fails, 30GB extra per sort thread + 30GB extra for BWA.
-# Threads for individual tasks: Work backwards from {threads} from snakemake
-# Once mapping succeeds, run coverM to get contig depth for this bam
+            batch      = wildcards.batch)
+    return(get_fasta_index_path(fasta, wildcards.mapper))
 
 ###############################################################################################
-# BWA: Map reads to contig/scaffold batches
+# Downsample large metagenomes to reduce heavy run time when mapping to ALL contigs
 ###############################################################################################
 
 rule set_max_mapcount:
@@ -434,37 +380,53 @@ rule set_max_mapcount:
         df['binprep_limit'] = np.where(df['fragment_count_clean'] >= threestd, str(threestd), "None")
         df.to_csv(output[0], sep = "\t", columns = ['sample', 'binprep_limit'], index=False)
 
+###############################################################################################
+# BWA: Map reads to contig/scaffold batches
+###############################################################################################
+
+# Maps reads to contig-set using bwa2
+# Baseline memory usage is:
+#   BWA : 3.1 bytes per base in DNA database (regression: mem = 5.556e+09 + 3.011*size(bwa.0123))
+#   Sort: using config values: SAMTOOLS_sort_threads and SAMTOOLS_sort_perthread_memgb;
+#   Total = BWA + Sort
+#   E.g. 25GB for BWA, 2 sort threads and 10GB per-thread = 45GB
+# If an attempt fails, 30GB extra per sort thread + 30GB extra for BWA.
+# Threads for individual tasks: Work backwards from {threads} from snakemake
+# Once mapping succeeds, run coverM to get contig depth for this bam
 
 rule map_BWA_depth_coverM:
     input:
-        bwaindex=get_contig_bwa_index,
+        bwaindex=get_assembly_batch_index_files,
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
         maxfrag=rules.set_max_mapcount.output
     output:
-        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.bwa.depth.txt.gz")
+        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
     shadow:
         "minimal"
     log:
-        "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.bwa2.log"
+        "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.{mapper}.log"
     wildcard_constraints:
+        mapper   = r'bwa',
         batch    = r'\d+',
         illumina = r'[^/]+'
     resources:
         samtools_sort_threads = 3,
         map_threads = lambda wildcards, threads: max(1, threads - 3),
         coverm_threads = lambda wildcards, threads: min(8, threads),
-        mem = lambda wildcards, input, attempt: int(10 + 3.1*os.path.getsize(input.bwaindex[0])/1e9 + 1.1*3*(SAMTOOLS_sort_perthread_memgb + 30*(attempt-1))),
+        mem = lambda wildcards, input, attempt: int(10 + 3.1*get_file_size_gb(input.bwaindex[0]) + 1.1*3*(SAMTOOLS_sort_perthread_memgb + 30*(attempt-1))),
         sort_mem = lambda wildcards, attempt: SAMTOOLS_sort_perthread_memgb + 30*(attempt-1)
     threads:
         BWA_threads + 3
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
     conda:
         minto_dir + "/envs/MIntO_base.yml" #bwa-mem2
     shell:
         """
         mkdir -p $(dirname {output})
-        db_name=$(echo {input.bwaindex[0]} | sed "s/.0123//")
-        
+
         max_mapped_fragcount=$(grep "^{wildcards.illumina}$(printf '\\t')" {input.maxfrag} | cut -f 2 )
         
         # Make named pipes if needed
@@ -479,13 +441,28 @@ rule map_BWA_depth_coverM:
         else
             input_files="{input.fwd} {input.rev}"
         fi
-        time (bwa-mem2 mem -P -a -t {resources.map_threads} $db_name $input_files \
+
+        time (
+            # Stage index files locally if needed
+            # Set db_name accordingly
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.bwaindex}
+                db_name={local_cache_dir:q}/{input.bwaindex[0]}
+            else
+                db_name={input.bwaindex[0]}
+            fi
+
+            # Remove the index file extension to get db_name argument to bwa
+            db_name=${{db_name%.0123}}
+
+            bwa-mem2 mem -P -a -t {resources.map_threads} $db_name $input_files \
                 | msamtools filter -buS -p 95 -l 45 - \
                 | samtools sort -m {resources.sort_mem}G --threads {resources.samtools_sort_threads} - \
                 > {wildcards.illumina}.bam
-              coverm contig --methods metabat --trim-min 10 --trim-max 90 --min-read-percent-identity 95 --threads {resources.coverm_threads} --output-file sorted.depth --bam-files {wildcards.illumina}.bam
-              gzip -2 sorted.depth
-              rsync -a sorted.depth.gz {output.depth}
+            coverm contig --methods metabat --trim-min 10 --trim-max 90 --min-read-percent-identity 95 --threads {resources.coverm_threads} --output-file sorted.depth --bam-files {wildcards.illumina}.bam
+            gzip -2 sorted.depth
+            rsync -a sorted.depth.gz {output.depth}
         ) >& {log}
         """
 
@@ -493,53 +470,36 @@ rule map_BWA_depth_coverM:
 # StrobeAlign: Map reads to contig/scaffold batches
 ###############################################################################################
 
-# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
-# Otherwise, return the original index files in project work_dir.
-def get_contig_sba_index(wildcards):
-
-    # Where are the index files?
-    if CLUSTER_NODES != None:
-        index_location = 'sba_index_local'
-    else:
-        index_location = 'sba_index'
-
-    # strobealign takes the fasta as input and derives the index name from it
-    files = expand("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/{location}/batch{batch}.fasta.gz",
-            wd         = wildcards.wd,
-            omics      = wildcards.omics,
-            scaf_type  = wildcards.scaf_type,
-            location   = index_location,
-            batch      = wildcards.batch,
-            min_length = wildcards.min_length)
-
-    # Return them
-    return(files)
-
 rule map_strobealign:
     input:
-        fasta=get_contig_sba_index,
+        fasta=rules.write_assembly_batch_fasta.output.fasta,
+        sbaindex=get_assembly_batch_index_files,
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
         maxfrag=rules.set_max_mapcount.output
     output:
-        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.strobealign.depth.txt.gz")
+        depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
     shadow:
         "minimal"
     log:
-        "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.sba.log"
+        "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.{mapper}.log"
     wildcard_constraints:
+        mapper   = r'strobealign',
         batch    = r'\d+',
         illumina = r'[^/]+'
     resources:
-        mem = lambda wildcards, input, attempt: int(20 + 13*os.path.getsize(input.fasta[0])/1e9 + 20*(attempt-1)),
+        mem = lambda wildcards, input, attempt: int(20 + 13*get_file_size_gb(input.fasta) + 20*(attempt-1)),
     threads:
         BWA_threads
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
     conda:
         minto_dir + "/envs/strobealign.yml"
     shell:
         """
         mkdir -p $(dirname {output})
-        
+
         max_mapped_fragcount=$(grep "^{wildcards.illumina}$(printf '\\t')" {input.maxfrag} | cut -f 2 )
         
         # Make named pipes if needed
@@ -554,10 +514,24 @@ rule map_strobealign:
         else
             input_files="{input.fwd} {input.rev}"
         fi
-        # fixed mean read length
-        time (strobealign -t {threads} -r 150 --use-index --aemb {input.fasta} $input_files > abundances.tsv
-              gzip -2 abundances.tsv
-              rsync -a abundances.tsv.gz {output.depth}
+
+        time (
+            # Stage index files locally if needed
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta:q}
+                db_name={local_cache_dir:q}/{input.sbaindex[0]}
+            else
+                db_name={input.sbaindex[0]}
+            fi
+
+            # Remove the index file extension to get db_name argument to bwa
+            db_name=${{db_name%.r150.sti}}
+
+            # fixed mean read length
+            strobealign -t {threads} -r 150 --use-index --aemb $db_name $input_files > abundances.tsv
+            gzip -2 abundances.tsv
+            rsync -a abundances.tsv.gz {output.depth:q}
         ) >& {log}
         """
 
@@ -679,7 +653,7 @@ rule colbind_sample_contig_depths_for_batch:
 ##################################################
 
 def get_batches_for_scaf_type_generic(wildcards, filetype):
-    chkpnt_output = checkpoints.make_assembly_batches.get(**wildcards).output[0]
+    chkpnt_output = checkpoints.make_assembly_batches.get(**wildcards).output.location
     batches       = glob_wildcards(os.path.join(chkpnt_output, "batch{batch,\d+}.list")).batch
     prefix        = 'scaffolds' if (filetype == 'fasta') else 'depth'
     result        = expand("{wd}/{omics}/8-1-binning/{prefix}_{scaf_type}.{min_length}/batch{batch}.{extension}.gz",
@@ -853,7 +827,7 @@ rule combine_contig_depth_header:
 #    memKB = 4.336e+5 + 1.745e-3*filesize - 1.150e+3*samples
 #    memGB = 0.43 + 1.745e-9*filesize - 1.2e-3*samples
 # Ignored the negative effect of samples to err on cautious side.
-# Safely converted to 2 + int(1.75e-9*filesize)
+# Safely converted to 2 + int(1.75*filesizeGB)
 # Using dummy filesize value to allow --dry-run to work when files don't exist yet
 rule make_abundance_npz:
     input:
@@ -861,6 +835,7 @@ rule make_abundance_npz:
         header  = rules.combine_contig_depth_header.output.header,
         depths  = get_depth_files_across_scaffold_types,
     output:
+        tsv="{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.tsv",
         npz="{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.npz"
     log:
         "{wd}/logs/{omics}/8-1-binning/scaffolds.{min_length}.abundance.log"
@@ -869,7 +844,7 @@ rule make_abundance_npz:
     threads:
         1
     resources:
-        mem = lambda wildcards, input: 2 + int(1.75e-9*sum((lambda file: os.path.getsize(file) if os.path.exists(file) else 1048576)(file) for file in input.depths))
+        mem = lambda wildcards, input: 2 + int(1.75*sum(get_file_size_gb(file) for file in input.depths))
     conda:
         minto_dir + "/envs/vamb.yml"
     shell:
@@ -878,6 +853,7 @@ rule make_abundance_npz:
             (zcat {input.header} | sed 's/^contigName/contigname/'; zcat {input.depths}) > combined.depth
             python3 {script_dir}/make_vamb_abundance_npz.py --fasta {input.contigs} --abundance-tsv combined.depth --minlength {wildcards.min_length} --output abundance.npz
             rsync -a abundance.npz {output.npz}
+            rsync -a combined.depth {output.tsv}
         ) >& {log}
         """
 

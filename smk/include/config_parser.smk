@@ -50,6 +50,7 @@ GLOBAL_CONFIG_KEYTYPES = {
     'HYBRID' : dict,
     'ILLUMINA' : [list, 'file', str],
     'ILLUMINA_suffix' : list,
+    'LOCAL_DATABASE_CACHE_DIR' : str,
     'MAG_omics' : str,
     'ALIGNER_threads' : int,
     'MAIN_factor' : str,
