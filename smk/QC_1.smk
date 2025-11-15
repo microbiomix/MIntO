@@ -607,7 +607,7 @@ READ_minlen: $(cat {input.cutoff_file})
 #########################
 
 # Path of the host genome file: <PATH_host_genome>/<NAME_host_genome>
-# Inferred location for bwa-mem2/strobealign index files: <PATH_host_genome>/{BWA|STROBEALIGN}_index/<NAME_host_genome>.*
+# Inferred location for bwa-mem2/strobealign index files: <PATH_host_genome>/{{BWA|STROBEALIGN}}_index/<NAME_host_genome>.*
 # If index files already exist, then they will be used directly.
 # If not, a fasta file should exist exactly as: <PATH_host_genome>/<NAME_host_genome>
 #   which will be used to build the index files in the inferred location above.
