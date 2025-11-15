@@ -606,15 +606,25 @@ READ_minlen: $(cat {input.cutoff_file})
 # Host genome filtering
 #########################
 
-# bwa-mem2 index files will be stored at: <PATH_host_genome>/BWA_index/<NAME_host_genome>.*
-# If it already exists, then it will be used directly.
-# If not, a fasta file should exist as: <PATH_host_genome>/<NAME_host_genome>
-# This will be build into index files using:
-#    bwa-mem2 index -p <PATH_host_genome>/BWA_index/<NAME_host_genome> <PATH_host_genome>/<NAME_host_genome>
+# Path of the host genome file: <PATH_host_genome>/<NAME_host_genome>
+# Inferred location for bwa-mem2/strobealign index files: <PATH_host_genome>/{BWA|STROBEALIGN}_index/<NAME_host_genome>.*
+# If index files already exist, then they will be used directly.
+# If not, a fasta file should exist exactly as: <PATH_host_genome>/<NAME_host_genome>
+#   which will be used to build the index files in the inferred location above.
 
-PATH_host_genome:
-NAME_host_genome:
-BWA_host_threads: 8
+PATH_host_genome: None
+NAME_host_genome: None
+
+# Should host genome index files be cached in a local mirror?
+# If yes, set the path here.
+# If no,  set it to None
+
+LOCAL_DATABASE_CACHE_DIR: None
+
+# Which aligner to use for host screening?
+
+ALIGNER_type: bwa
+ALIGNER_threads: 8
 ___EOF___
 
         if [ "{omics}" == "metaT" ]; then

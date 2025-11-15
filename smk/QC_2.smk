@@ -21,6 +21,7 @@ NEED_PROJECT_VARIABLES = True
 include: 'include/cmdline_validator.smk'
 include: 'include/config_parser.smk'
 include: 'include/locations.smk'
+include: 'include/mapper_index_creation.smk'
 
 module print_versions:
     snakefile:
@@ -95,7 +96,8 @@ if read_min_len < 50:
 # BWA for host genome filtering
 ##############################################
 
-bwa_threads = validate_required_key(config, 'BWA_host_threads')
+ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
+local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
 ##############################################
 # taxonomy
@@ -175,17 +177,6 @@ if omics == 'metaG':
     sourmash_M = validate_required_key(config, 'SOURMASH_max_abund')
     sourmash_cutoff = validate_required_key(config, 'SOURMASH_cutoff')
 
-# Site customization for avoiding NFS traffic during I/O heavy steps such as mapping
-
-CLUSTER_NODES            = None
-CLUSTER_LOCAL_DIR        = None
-CLUSTER_WORKLOAD_MANAGER = None
-include: minto_dir + '/site/cluster_def.py'
-
-# Cluster-aware bwa-index rules
-
-include: 'include/bwa_index_wrapper.smk'
-
 ##############################################
 # Define all the outputs needed by target 'all'
 ##############################################
@@ -249,15 +240,8 @@ def next_step_config_yml_output():
                 omics = omics)
     return(result)
 
-def clean_bwa_index_host():
-    if CLUSTER_NODES != None and validate_optional_key(config, 'CLEAN_BWA_INDEX'):
-        return(f"{host_genome_path}/BWA_index/{host_genome_name}.clustersync/cleaning.done")
-    else:
-        return([])
-
 rule all:
     input:
-        clean_bwa_index_host(),
         readcounts_output(),
         merged_sample_output(),
         taxonomy_plot_output(),
@@ -311,28 +295,8 @@ rule qc2_length_filter:
 # Remove host genome sequences
 ###############################################################################################
 
-# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
-# Otherwise, return the original index files in project work_dir.
-def get_host_bwa_index(wildcards):
-
-    # Where are the index files?
-    # exception if already on local disk
-    if CLUSTER_NODES != None and not host_genome_path.startswith("/scratch"):
-        index_location = 'BWA_index_local'
-    else:
-        index_location = 'BWA_index'
-
-    # Get all the index files!
-    files = expand("{somewhere}/{location}/{genome}.{ext}",
-                    somewhere = host_genome_path,
-                    location  = index_location,
-                    genome    = host_genome_name,
-                    ext       = ['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac'])
-
-    # Return them
-    return(files)
-
-# Remove potential host-derived reads
+# Remove potential host-derived reads based on genome in "{host_genome_path}/{host_genome_name}".
+# Details of which index files are generated - in 'include/mapper_index_creation.smk'
 # BWA mem memory is estimated as 3.1 bytes per base in database (regression: mem = 5.556e+09 + 3.011*input).
 
 # For metaG, 4-hostfree is the final QC2 output.
@@ -342,12 +306,12 @@ def get_host_bwa_index(wildcards):
 # main rule: metaG - output is not temporary
 rule qc2_host_filter:
     input:
-        pairead_fw=rules.qc2_length_filter.output.paired1,
-        pairead_rv=rules.qc2_length_filter.output.paired2,
-        bwaindex=get_host_bwa_index
+        pairead_fw = rules.qc2_length_filter.output.paired1,
+        pairead_rv = rules.qc2_length_filter.output.paired2,
+        bwaindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", "bwa")
     output:
-        host_free_fw="{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz",
-        host_free_rv="{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz",
+        host_free_fw = "{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz",
+        host_free_rv = "{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz",
     shadow:
         "minimal"
     log:
@@ -357,19 +321,33 @@ rule qc2_host_filter:
     resources:
         mem = lambda wildcards, input, attempt: 10 + int(3.1*os.path.getsize(input.bwaindex[0])/1e9) + 10*(attempt-1)
     threads:
-        bwa_threads
+        ALIGNER_threads
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
     conda:
         minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
     shell:
         """
-        bwaindex_prefix={input.bwaindex[0]}
-        bwaindex_prefix=${{bwaindex_prefix%.*}}
         remote_dir=$(dirname {output.host_free_fw})
         time (
-                bwa-mem2 mem -t {threads} -v 3 $bwaindex_prefix {input.pairead_fw} {input.pairead_rv} \
+            # Stage index files locally if needed
+            # Set db_name accordingly
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.bwaindex}
+                db_name={local_cache_dir:q}/{input.bwaindex[0]}
+            else
+                db_name={input.bwaindex[0]}
+            fi
+
+            # Remove the index file extension to get db_name argument to bwa
+            db_name=${{db_name%.0123}}
+
+            bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw} {input.pairead_rv} \
                   | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
                   | samtools fastq -1 $(basename {output.host_free_fw}) -2 $(basename {output.host_free_rv}) -s /dev/null -c 6 -N -
-                rsync -a * $remote_dir/
+            rsync -a * $remote_dir/
         ) >& {log}
         """
 
@@ -1008,7 +986,7 @@ METADATA: {input.metadata}
 MAIN_factor: {main_factor}
 
 ######################
-# Program settings
+# Assembler settings
 ######################
 # MetaSPAdes settings
 #
@@ -1065,9 +1043,6 @@ SPADES_CONTIGS_OR_SCAFFOLDS: contigs
 # minimum contig/scaffold fasta length
 MIN_FASTA_LENGTH: 2500
 
-# Which aligner or mapper to use: 'bwa' or 'strobealign'
-ALIGNER_type: strobealign
-
 # maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
 MAX_RAM_GB_PER_JOB: 180
 
@@ -1083,13 +1058,14 @@ MAX_RAM_GB_PER_JOB: 180
 #
 # EXCLUDE_ASSEMBLY_TYPES:
 
-# Contig-depth: bwa-mem2 settings
+# Contig-depth: aligner program settings
 # Used when mapping reads back to contigs
-#
-# BWA Alignment
-BWA_threads: 10
 
-# Contig-depth: samtools sort settings
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: strobealign
+ALIGNER_threads: 10
+
+# Contig-depth: samtools sort settings when using 'bwa'
 # Used when sorting bam files using 3 threads
 # Memory listed below is PER-THREAD, so please make sure you have enough
 SAMTOOLS_sort_perthread_memgb: 10
@@ -1287,8 +1263,9 @@ ANNOTATION:
 # Gene abundance settings
 #########################
 
-# BWA Alignment
-BWA_threads: 10
+# Alignment
+ALIGNER_type: bwa
+ALIGNER_threads: 10
 
 # Alignment filtering
 # -------------------
