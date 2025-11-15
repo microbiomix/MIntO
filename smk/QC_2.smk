@@ -329,12 +329,12 @@ rule qc2_host_filter:
         minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
     shell:
         """
-        remote_dir=$(dirname {output.host_free_fw})
+        remote_dir=$(dirname {output.host_free_fw:q})
         time (
             # Stage index files locally if needed
             # Set db_name accordingly
             if [ "{params.staging}" == "yes" ]; then
-                source {minto_dir}/include/file_staging_functions.sh
+                source {minto_dir:q}/include/file_staging_functions.sh
                 stage_multiple_files_in {params.final_destination:q} {input.bwaindex}
                 db_name={local_cache_dir:q}/{input.bwaindex[0]}
             else
@@ -344,9 +344,9 @@ rule qc2_host_filter:
             # Remove the index file extension to get db_name argument to bwa
             db_name=${{db_name%.0123}}
 
-            bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw} {input.pairead_rv} \
+            bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
                   | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
-                  | samtools fastq -1 $(basename {output.host_free_fw}) -2 $(basename {output.host_free_rv}) -s /dev/null -c 6 -N -
+                  | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
             rsync -a * $remote_dir/
         ) >& {log}
         """
