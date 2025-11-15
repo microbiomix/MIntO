@@ -319,7 +319,7 @@ rule qc2_host_filter:
     wildcard_constraints:
         omics='metaG'
     resources:
-        mem = lambda wildcards, input, attempt: 10 + int(3.1*os.path.getsize(input.bwaindex[0])/1e9) + 10*(attempt-1)
+        mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.bwaindex[0])) + 10*(attempt-1)
     threads:
         ALIGNER_threads
     params:

@@ -17,6 +17,7 @@ include: 'include/cmdline_validator.smk'
 include: 'include/config_parser.smk'
 include: 'include/locations.smk'
 include: 'include/fasta_bam_helpers.smk'
+include: 'include/resources.smk'
 
 module print_versions:
     snakefile:
@@ -225,7 +226,7 @@ rule correct_spadeshammer:
     params:
         qoffset = METASPADES_qoffset
     resources:
-        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.reads[0])*5.2e-8+ 50*(attempt-1))
+        mem = lambda wildcards, input, attempt: int(26 + 52*get_file_size_gb(input.reads[0]) + 50*(attempt-1))
     log:
         "{wd}/logs/{omics}/5-corrected-runs/{illumina}/{run}_spadeshammer.log"
     threads:
@@ -308,7 +309,7 @@ rule illumina_assembly_metaspades:
         asm_mode = "--meta",
         kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
     resources:
-        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.fwd)*8.8e-9+ 20*(attempt-1))
+        mem = lambda wildcards, input, attempt: int(26 + 8.8*get_file_size_gb(input.fwd) + 20*(attempt-1))
     log:
         "{wd}/logs/{omics}/7-assembly/{illumina}/k21-{maxk}/{illumina}_metaspades.log"
     threads:
@@ -354,7 +355,7 @@ rule hybrid_assembly_metaspades:
         asm_mode = "--meta",
         kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
     resources:
-        mem = lambda wildcards, input, attempt: int(26 + os.path.getsize(input.fwd)*8.8e-9+ 20*(attempt-1))
+        mem = lambda wildcards, input, attempt: int(26 + 8.8*get_file_size_gb(input.fwd) + 20*(attempt-1))
     log:
         "{wd}/logs/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/{nanopore}-{illumina}_metaspades.log"
     threads:
