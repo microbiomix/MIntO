@@ -121,7 +121,7 @@ check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
 
 # Aligner resources
 
-BWA_threads = validate_required_key(config, 'BWA_threads')
+ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
 SAMTOOLS_sort_perthread_memgb = validate_required_key(config, 'SAMTOOLS_sort_perthread_memgb')
 local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
@@ -417,7 +417,7 @@ rule map_BWA_depth_coverM:
         mem = lambda wildcards, input, attempt: int(10 + 3.1*get_file_size_gb(input.bwaindex[0]) + 1.1*3*(SAMTOOLS_sort_perthread_memgb + 30*(attempt-1))),
         sort_mem = lambda wildcards, attempt: SAMTOOLS_sort_perthread_memgb + 30*(attempt-1)
     threads:
-        BWA_threads + 3
+        ALIGNER_threads + 3
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
@@ -490,7 +490,7 @@ rule map_strobealign:
     resources:
         mem = lambda wildcards, input, attempt: int(20 + 13*get_file_size_gb(input.fasta) + 20*(attempt-1)),
     threads:
-        BWA_threads
+        ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
