@@ -19,6 +19,7 @@ include: 'include/cmdline_validator.smk'
 include: 'include/config_parser.smk'
 include: 'include/locations.smk'
 include: 'include/resources.smk'
+include: 'include/mapper_index_creation.smk'
 
 module print_versions:
     snakefile:
@@ -91,7 +92,8 @@ else:
                 if os.path.exists(gene_catalog_path + '/' + gene_catalog_name):
                     print(f"NOTE: MIntO is using {gene_catalog_path}/{gene_catalog_name} as gene database.")
 
-BWA_threads = validate_required_key(config, 'BWA_threads')
+ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
+local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
 # Taxonomic profiles from mapping reads to MAGs or refgenomes
 
@@ -118,17 +120,6 @@ if MINTO_MODE in ['MAG', 'refgenome']:
                 version = validate_required_key(config, "GTDB_TAXONOMY_VERSION")
             taxonomies_versioned.append(t+"."+version)
         print('NOTE: MIntO is using taxonomy labelling of the unique MAGs from [{}].'.format(", ".join(taxonomies_versioned)))
-
-# Site customization for avoiding NFS traffic during I/O heavy steps such as mapping
-
-CLUSTER_NODES            = None
-CLUSTER_LOCAL_DIR        = None
-CLUSTER_WORKLOAD_MANAGER = None
-include: minto_dir + '/site/cluster_def.py'
-
-# Cluster-aware bwa-index rules
-
-include: 'include/bwa_index_wrapper.smk'
 
 ######
 # Make a lookup table for sample --> sample_alias using metadata file
@@ -204,32 +195,15 @@ def config_yaml():
                 wd = working_dir)
     return(result)
 
-# If BWA index clean-up requested, only do cleanup and nothing else
-if CLUSTER_NODES != None and validate_optional_key(config, 'CLEAN_BWA_INDEX'):
-
-    print("NOTE: BWA index cleanup mode requested.")
-
-    def clean_bwa_index():
-        if MINTO_MODE == 'catalog':
-            return(f"{gene_catalog_path}/BWA_index/{gene_catalog_name}.clustersync/cleaning.done")
-        else:
-            return(f"{working_dir}/DB/{MINTO_MODE}/BWA_index/{MINTO_MODE}.fna.clustersync/cleaning.done")
-
-    rule all:
-        input:
-            clean_bwa_index()
-        default_target: True
-
-else:
-    rule all:
-        input:
-            combined_genome_profiles_annotated(),
-            combined_genome_profiles(),
-            combined_gene_abundance_profiles(),
-            mapping_statistics(),
-            config_yaml(),
-            print_versions.get_version_output(snakefile_name)
-        default_target: True
+rule all:
+    input:
+        combined_genome_profiles_annotated(),
+        combined_genome_profiles(),
+        combined_gene_abundance_profiles(),
+        mapping_statistics(),
+        config_yaml(),
+        print_versions.get_version_output(snakefile_name)
+    default_target: True
 
 ###############################################################################################
 # Functions to get fastq files
@@ -268,7 +242,7 @@ rule make_merged_genome_fna:
     localrule: True
     input: get_genome_fna
     output:
-        fasta_merge="{wd}/DB/{minto_mode}/{minto_mode}.fna"
+        fasta = "{wd}/DB/{minto_mode}/{minto_mode}.fna"
     log:
         "{wd}/logs/DB/{minto_mode}/{minto_mode}.merge_genome.log"
     wildcard_constraints:
@@ -291,30 +265,6 @@ rule make_genome_def:
         cat {input} | grep '^>' | sed -e 's/^>\([^_]\+\)_\(.*\)/\\1\\t\\1_\\2/' > {output}
         """
 
-################################################################################################
-# Get BWA index for the filtered contigs
-################################################################################################
-
-# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
-# Otherwise, return the original index files in project work_dir.
-def get_genome_bwa_index(wildcards):
-
-    # Where are the index files?
-    if CLUSTER_NODES != None:
-        index_location = 'BWA_index_local'
-    else:
-        index_location = 'BWA_index'
-
-    # Get all the index files!
-    files = expand("{wd}/DB/{minto_mode}/{location}/{minto_mode}.fna.{ext}",
-            wd         = wildcards.wd,
-            minto_mode = wildcards.minto_mode,
-            location   = index_location,
-            ext        = ['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac'])
-
-    # Return them
-    return(files)
-
 #########################
 # Map reads using BWA2, profile using msamtools, sort bam file, and create gene-level BED file.
 # Mapping and computation of read counts using samtools bedcov are done in the same rule.
@@ -332,33 +282,35 @@ def get_genome_bwa_index(wildcards):
 
 rule genome_mapping_profiling:
     input:
-        bwaindex=get_genome_bwa_index,
-        genome_def=rules.make_genome_def.output.genome_def,
-        fwd=get_fwd_files_only,
-        rev=get_rev_files_only,
-        bed_mini="{wd}/DB/{minto_mode}/{minto_mode}-genes.bed.mini"
+        bwaindex   = lambda wildcards: get_fasta_index_path(rules.make_merged_genome_fna.output.fasta.format(**wildcards), "bwa"),
+        genome_def = rules.make_genome_def.output.genome_def,
+        fwd        = get_fwd_files_only,
+        rev        = get_rev_files_only,
+        bed_mini   = "{wd}/DB/{minto_mode}/{minto_mode}-genes.bed.mini"
     output:
-        bwa_log=        "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.bwa.log",
-        raw_all_seq=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.all.txt.gz",
-        raw_prop_seq=   "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.prop.txt.gz",
-        raw_prop_genome="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.prop.genome.txt.gz",
-        rel_prop_genome="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.relabund.prop.genome.txt.gz",
-        absolute_counts="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.bed.gz"
+        bwa_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.bwa.log",
+        raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.all.txt.gz",
+        raw_prop_seq    = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.prop.txt.gz",
+        raw_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.prop.genome.txt.gz",
+        rel_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.relabund.prop.genome.txt.gz",
+        absolute_counts = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.bed.gz"
     shadow:
         "minimal"
     params:
-        length = msamtools_filter_length,
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
+        length            = msamtools_filter_length,
         mapped_reads_threshold = MIN_mapped_reads,
-        bedcov_lines = 500000,
-        sample_alias = lambda wildcards: sample2alias[wildcards.sample],
-        num_runs = lambda wildcards, input: len(input.fwd)
+        bedcov_lines      = 500000,
+        sample_alias      = lambda wildcards: sample2alias[wildcards.sample],
+        num_runs          = lambda wildcards, input: len(input.fwd)
     log:
         "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}.map_profile.log"
     wildcard_constraints:
         identity   = r'\d+',
         minto_mode = r'MAG|refgenome'
     threads:
-        BWA_threads
+        ALIGNER_threads
     resources:
         sort_threads = 3,
         bedcov_threads = lambda wildcards, threads: min(10, threads),
@@ -367,7 +319,10 @@ rule genome_mapping_profiling:
         minto_dir + "/envs/MIntO_base.yml" # BWA + samtools + msamtools + perl + parallel
     shell:
         """
+        ###########################
         # Make named pipes if needed
+        ###########################
+
         if (( {params.num_runs} > 1 )); then
             mkfifo {wildcards.sample}.1.fq.gz
             mkfifo {wildcards.sample}.2.fq.gz
@@ -378,17 +333,39 @@ rule genome_mapping_profiling:
             input_files="{input.fwd} {input.rev}"
         fi
 
-        # Get index file name
-        bwaindex_prefix={input.bwaindex[0]}
-        bwaindex_prefix=${{bwaindex_prefix%.0123}}
+        ###########################
+        # Figure out index db
+        ###########################
 
+        # Stage index files locally if needed
+        # Set db_name accordingly
+
+        if [ "{params.staging}" == "yes" ]; then
+            source {minto_dir:q}/include/file_staging_functions.sh
+            echo "Using local cache of index files" > {log}
+            stage_multiple_files_in {params.final_destination:q} {input.bwaindex} &>> {log}
+            db_name={local_cache_dir:q}/{input.bwaindex[0]}
+        else
+            echo "Using original index files" > {log}
+            db_name={input.bwaindex[0]}
+        fi
+
+        # Remove the index file extension to get db_name argument to bwa
+        db_name=${{db_name%.0123}}
+
+        ###########################
         # Estimate samtools sort memory
+        ###########################
+
         sort_memory=$((9*{resources.mem}/{resources.sort_threads}/10))
         echo "Using {resources.sort_threads} threads and $sort_memory GB memory per thread for 'samtools sort'"
         echo "Using {resources.bedcov_threads} threads and {params.bedcov_lines} lines per batch-file for 'samtools bedcov'"
 
-        # Do the mapping
-        (time (bwa-mem2 mem -a -t {threads} -v 3 ${{bwaindex_prefix}} $input_files | \
+        ###########################
+        # Do the mapping and profiling
+        ###########################
+
+        (time (bwa-mem2 mem -a -t {threads} -v 3 $db_name $input_files | \
                     msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.bwa_log}
             total_reads="$(grep Processed {output.bwa_log} | perl -ne 'm/Processed (\\d+) reads/; $sum+=$1; END{{printf "%d\\n", $sum/2;}}')"
             #echo $total_reads
@@ -422,36 +399,12 @@ __EOM__
 
             # Rsync output bed file
             rsync -a out.bed.gz {output.absolute_counts}
-        ) >& {log}
+        ) &>> {log}
         """
 
 ###############################################################################################
 # MIntO mode: catalog
 ###############################################################################################
-
-#########################
-# Get bwa index for catalog
-#########################
-
-# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
-# Otherwise, return the original index files in project work_dir.
-def get_catalog_bwa_index(wildcards):
-
-    # Where are the index files?
-    if CLUSTER_NODES != None:
-        index_location = 'BWA_index_local'
-    else:
-        index_location = 'BWA_index'
-
-    # Get all the index files!
-    files = expand("{path}/{location}/{name}.{ext}",
-            path       = gene_catalog_path,
-            name       = gene_catalog_name,
-            location   = index_location,
-            ext        = ['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac'])
-
-    # Return them
-    return(files)
 
 #########################
 # Map reads using BWA2
@@ -462,9 +415,9 @@ def get_catalog_bwa_index(wildcards):
 
 rule gene_catalog_mapping_profiling:
     input:
-        bwaindex=get_catalog_bwa_index,
-        fwd=get_fwd_files_only,
-        rev=get_rev_files_only,
+        bwaindex = lambda wildcards: get_fasta_index_path(f"{gene_catalog_path}/{gene_catalog_name}", "bwa"),
+        fwd      = get_fwd_files_only,
+        rev      = get_rev_files_only,
     output:
         bwa_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.log",
         profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.TPM.txt.gz",
@@ -472,18 +425,23 @@ rule gene_catalog_mapping_profiling:
     shadow:
         "minimal"
     params:
-        sample_alias=lambda wildcards: sample2alias[wildcards.sample],
-        length=msamtools_filter_length,
-        mapped_reads_threshold=MIN_mapped_reads,
-        num_runs = lambda wildcards, input: len(input.fwd)
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
+        sample_alias      = lambda wildcards: sample2alias[wildcards.sample],
+        length            = msamtools_filter_length,
+        mapped_reads_threshold = MIN_mapped_reads,
+        num_runs          = lambda wildcards, input: len(input.fwd)
     log:
         "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}_bwa.log"
     wildcard_constraints:
         minto_mode = r'catalog'
     threads:
-        BWA_threads
+        ALIGNER_threads
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
     resources:
-        mem = lambda wildcards, input, attempt: math.ceil(5.6 + 3.1e-9*get_file_size(input.bwaindex[0])) + 10*(attempt-1)
+        mem = lambda wildcards, input, attempt: math.ceil(5.6 + 3.1*get_file_size_gb(input.bwaindex[0])) + 10*(attempt-1)
     conda:
         minto_dir + "/envs/MIntO_base.yml" #BWA + samtools
     shell:
@@ -499,12 +457,23 @@ rule gene_catalog_mapping_profiling:
             input_files="{input.fwd} {input.rev}"
         fi
 
-        # Get index file name
-        bwaindex_prefix={input.bwaindex[0]}
-        bwaindex_prefix=${{bwaindex_prefix%.0123}}
+        time (
+            # Stage index files locally if needed
+            # Set db_name accordingly
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir:q}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.bwaindex}
+                db_name={local_cache_dir:q}/{input.bwaindex[0]}
+            else
+                db_name={input.bwaindex[0]}
+            fi
 
-        # Do the mapping
-        (time (bwa-mem2 mem -a -t {threads} -v 3 ${{bwaindex_prefix}} $input_files | \
+            # Remove the index file extension to get db_name argument to bwa
+            db_name=${{db_name%.0123}}
+
+
+            # Do the mapping
+            (bwa-mem2 mem -a -t {threads} -v 3 $db_name $input_files | \
                 msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.bwa_log}
             total_reads="$(grep Processed {output.bwa_log} | perl -ne 'm/Processed (\\d+) reads/; $sum+=$1; END{{printf "%d\\n", $sum/2;}}')"
             #echo $total_reads
