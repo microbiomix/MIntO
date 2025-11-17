@@ -1058,17 +1058,21 @@ MAX_RAM_GB_PER_JOB: 180
 #
 # EXCLUDE_ASSEMBLY_TYPES:
 
-# Contig-depth: aligner program settings
+# binning_prep settings
 # Used when mapping reads back to contigs
 
 # Which aligner or mapper to use: 'bwa' or 'strobealign'
 ALIGNER_type: strobealign
 ALIGNER_threads: 10
 
-# Contig-depth: samtools sort settings when using 'bwa'
+# samtools sort settings when using 'bwa' for mapping
 # Used when sorting bam files using 3 threads
 # Memory listed below is PER-THREAD, so please make sure you have enough
 SAMTOOLS_sort_perthread_memgb: 10
+
+# Should I cache contig DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
 
 ###############################
 # Input data
@@ -1263,9 +1267,13 @@ ANNOTATION:
 # Gene abundance settings
 #########################
 
-# Alignment
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
 ALIGNER_type: bwa
 ALIGNER_threads: 10
+
+# Should I cache genome DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
 
 # Alignment filtering
 # -------------------
