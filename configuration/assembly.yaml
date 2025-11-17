@@ -14,7 +14,7 @@ METADATA: /mypath/IBD_tutorial/tutorial_metadata.txt
 MAIN_factor: participant_ID2
 
 ######################
-# Program settings
+# Assembler settings
 ######################
 # MetaSPAdes settings
 #
@@ -71,9 +71,6 @@ SPADES_CONTIGS_OR_SCAFFOLDS: contigs
 # minimum contig/scaffold fasta length
 MIN_FASTA_LENGTH: 2500
 
-# Which aligner or mapper to use: 'bwa' or 'strobealign'
-ALIGNER_type: strobealign
-
 # maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
 MAX_RAM_GB_PER_JOB: 180
 
@@ -92,16 +89,18 @@ MAX_RAM_GB_PER_JOB: 180
 EXCLUDE_ASSEMBLY_TYPES:
  - illumina_coas
 
-# Contig-depth: bwa-mem2 settings
+# Contig-depth: aligner program settings
 # Used when mapping reads back to contigs
-#
-# BWA Alignment
-BWA_threads: 10
 
-# Contig-depth: samtools sort settings
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: strobealign
+ALIGNER_threads: 10
+
+# Contig-depth: samtools sort settings when using 'bwa'
 # Used when sorting bam files using 3 threads
 # Memory listed below is PER-THREAD, so please make sure you have enough
 SAMTOOLS_sort_perthread_memgb: 10
+LOCAL_DATABASE_CACHE_DIR: /scratch/MIntO/mirror
 
 ###############################
 # Input data
