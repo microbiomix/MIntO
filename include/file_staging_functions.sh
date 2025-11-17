@@ -134,7 +134,7 @@ stage_file_in() {
 }
 
 # Stage a list of files to the local location
-# Usage: stage_multiple_files_in LOCAL_DIR LOCK_ID REMOTE_FILE1 [REMOTE_FILE2 ...]
+# Usage: stage_multiple_files_in LOCAL_DIR REMOTE_FILE1 [REMOTE_FILE2 ...]
 stage_multiple_files_in() {
     local local_location=$1
 
@@ -156,9 +156,14 @@ stage_multiple_files_in() {
     # Jitter: wait for a random amount of seconds (1–60) to avoid stampedes
     #sleep $((RANDOM % 60 + 1))
 
-    # Stage files one by one
+    # Get one of five host-specific locks randomly
+    # Determine stable lock id based on host name
     local remote
-    local lock_id=$((RANDOM % 5 + 1)) # Get one of five locks randomly
+    local host=${HOSTNAME:-$(hostname)}
+    local md5=$(printf '%s' "$host" | md5sum | awk '{print $1}')
+    local lock_id=$(( 0x${md5:0:4} % 5 + 1 ))
+
+    # Stage files one by one
     for remote in "$@"; do
         echo "Staging: $remote -> $local_location" >&2
         # Let stage_file_in handle its own mkdir/locking/rsync logic
