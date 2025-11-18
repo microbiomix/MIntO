@@ -176,7 +176,8 @@ for OMICS in metaG metaT; do
   profile_command "$cmd"
 
   echo -n "BINNING: "
-  cmd="snakemake --snakefile $CODE_DIR/smk/mags_generation.smk --configfile mags_generation.yaml $SNAKE_PARAMS >& mags.log"
+  perl -0777 -pe 's/BINNERS:\n- aaey\n- aaez\n- vaevae512\n/BINNERS:\n- aaey\n- aaez\n- vae512/;' < mags_generation.yaml > mags_generation.yaml.fixed
+  cmd="snakemake --snakefile $CODE_DIR/smk/mags_generation.smk --configfile mags_generation.yaml.fixed $SNAKE_PARAMS >& mags.log"
   profile_command "$cmd"
 
   echo -n "GENE_ANNOTATION - MAG: "
