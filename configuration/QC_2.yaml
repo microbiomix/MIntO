@@ -35,7 +35,7 @@ NAME_host_genome: build_hg18_subset.fna
 # If yes, set the path here.
 # If no,  set it to None
 
-LOCAL_DATABASE_CACHE_DIR: /scratch/MIntO/mirror
+LOCAL_DATABASE_CACHE_DIR: None
 
 # Which aligner to use for host screening?
 

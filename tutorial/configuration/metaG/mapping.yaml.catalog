@@ -45,8 +45,13 @@ ANNOTATION:
 # Gene abundance settings
 #########################
 
-# BWA Alignment
-BWA_threads: 10
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: bwa
+ALIGNER_threads: 10
+
+# Should I cache genome DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
 
 # Alignment filtering
 # -------------------
@@ -77,7 +82,7 @@ TAXONOMY_memory: 5
 # Taxonomy database versions
 #
 PHYLOPHLAN_TAXONOMY_VERSION: SGB.Jun23
-GTDB_TAXONOMY_VERSION: r220
+GTDB_TAXONOMY_VERSION: r226
 
 # Input data
 
