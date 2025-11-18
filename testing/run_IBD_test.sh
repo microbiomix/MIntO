@@ -165,7 +165,7 @@ for OMICS in metaG metaT; do
   profile_command "$cmd"
 
   echo -n "ASSEMBLY: "
-  perl -pe "s/enable_COASSEMBLY: no/enable_COASSEMBLY: yes/; s/^# Contig-depth: bwa/EXCLUDE_ASSEMBLY_TYPES:\n - illumina_coas\n\n# Contig-depth: bwa/" < assembly.yaml > assembly.yaml.fixed
+  perl -0777 -pe 's/enable_COASSEMBLY: no/enable_COASSEMBLY: yes/; s/# EXCLUDE_ASSEMBLY_TYPES:\n\n/EXCLUDE_ASSEMBLY_TYPES:\n - illumina_coas\n\n/' < assembly.yaml > assembly.yaml.fixed
   echo -e "\nMEGAHIT_custom:\n - 21,29,39,59,79,99,119,141\n - 21,29,39,59,79,99" >> assembly.yaml.fixed
 
   cmd="snakemake --snakefile $CODE_DIR/smk/assembly.smk --configfile assembly.yaml.fixed $SNAKE_PARAMS >& assembly.log"
