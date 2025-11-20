@@ -106,7 +106,11 @@ stage_file_in() {
     local attempts=0
     local rsync_rc=0
 
-    while (( attempts < 10 )); do
+    # We set max_attempts to 1, as it is designed for use from within Snakemake
+    # where "fail early" is the best approach. There might already be a
+    # "--restart-times=N" option given to Snakemake, which might make this
+    # even slower to catch an error when max_attempts > 1.
+    while (( attempts < 1 )); do
         if rsync --itemize-changes -a -- "$remote_file" "$local_copy"; then
             rsync_rc=0
             break
