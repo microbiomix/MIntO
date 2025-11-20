@@ -488,7 +488,7 @@ rule map_strobealign:
         batch    = r'\d+',
         illumina = r'[^/]+'
     resources:
-        mem = lambda wildcards, input, attempt: int(20 + 13*get_file_size_gb(input.fasta) + 20*(attempt-1)),
+        mem = lambda wildcards, input, attempt: int(50 + 17.7*get_file_size_gb(input.fasta) + 20*(attempt-1)),
     threads:
         ALIGNER_threads
     params:
