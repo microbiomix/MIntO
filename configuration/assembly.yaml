@@ -84,14 +84,13 @@ MAX_RAM_GB_PER_JOB: 180
 #     - illumina_single
 # ---
 #
-EXCLUDE_ASSEMBLY_TYPES:
-    - illumina_coas
+# EXCLUDE_ASSEMBLY_TYPES:
 
 # binning_prep settings
 # Used when mapping reads back to contigs
 
 # Which aligner or mapper to use: 'bwa' or 'strobealign'
-ALIGNER_type: bwa
+ALIGNER_type: strobealign
 ALIGNER_threads: 10
 
 # samtools sort settings when using 'bwa' for mapping
@@ -195,14 +194,10 @@ ILLUMINA:
 # Memory per coassembly is calculated to be 10G per sample in the coassembly.
 # Please make sure that there is enough RAM on the server.
 #
-enable_COASSEMBLY: yes
+enable_COASSEMBLY: no
 COASSEMBLY:
   'Full': CD136+CD138+CD140+CD142+CD146+CD237+CD238+CD240+CD242+CD244
   'CD1': CD136+CD138+CD140+CD142+CD146
   'CD2': CD237+CD238+CD240+CD242+CD244
   SCL2: CD140+CD142+CD138+CD146
   SCL4: CD237+CD240+CD242+CD238
-
-MEGAHIT_custom:
- - 21,29,39,59,79,99,119,141
- - 21,29,39,59,79,99
