@@ -621,7 +621,7 @@ NAME_host_genome: None
 
 LOCAL_DATABASE_CACHE_DIR: None
 
-# Which aligner to use for host screening?
+# Which aligner or mapper to use: currently only 'bwa' is supported
 
 ALIGNER_type: bwa
 ALIGNER_threads: 8
