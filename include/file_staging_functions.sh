@@ -165,7 +165,7 @@ stage_multiple_files_in() {
     local remote
     local host=${HOSTNAME:-$(hostname)}
     local md5=$(printf '%s' "$host" | md5sum | awk '{print $1}')
-    local lock_id=$(( 0x${md5:0:4} % 5 + 1 ))
+    local lock_id=$(( 0x${md5:0:11} % 5 + 1 ))
 
     # Stage files one by one
     for remote in "$@"; do
