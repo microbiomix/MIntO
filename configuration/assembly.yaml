@@ -14,7 +14,7 @@ METADATA: /mypath/IBD_tutorial/tutorial_metadata.txt
 MAIN_factor: participant_ID2
 
 ######################
-# Program settings
+# Assembler settings
 ######################
 # MetaSPAdes settings
 #
@@ -39,8 +39,8 @@ MEGAHIT_threads: 32
 MEGAHIT_presets:
  - meta-sensitive
  - meta-large
-MEGAHIT_custom:
- - 21,29,39,59,79,99,119,141
+#MEGAHIT_custom:
+# - 21,29,39,59,79,99,119,141
 
 # MetaFlye settings
 #
@@ -71,9 +71,6 @@ SPADES_CONTIGS_OR_SCAFFOLDS: contigs
 # minimum contig/scaffold fasta length
 MIN_FASTA_LENGTH: 2500
 
-# Which aligner or mapper to use: 'bwa' or 'strobealign'
-ALIGNER_type: strobealign
-
 # maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
 MAX_RAM_GB_PER_JOB: 180
 
@@ -89,19 +86,21 @@ MAX_RAM_GB_PER_JOB: 180
 #
 # EXCLUDE_ASSEMBLY_TYPES:
 
-EXCLUDE_ASSEMBLY_TYPES:
- - illumina_coas
-
-# Contig-depth: bwa-mem2 settings
+# binning_prep settings
 # Used when mapping reads back to contigs
-#
-# BWA Alignment
-BWA_threads: 10
 
-# Contig-depth: samtools sort settings
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: strobealign
+ALIGNER_threads: 10
+
+# samtools sort settings when using 'bwa' for mapping
 # Used when sorting bam files using 3 threads
 # Memory listed below is PER-THREAD, so please make sure you have enough
 SAMTOOLS_sort_perthread_memgb: 10
+
+# Should I cache contig DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
 
 ###############################
 # Input data
@@ -195,10 +194,10 @@ ILLUMINA:
 # Memory per coassembly is calculated to be 10G per sample in the coassembly.
 # Please make sure that there is enough RAM on the server.
 #
-enable_COASSEMBLY: yes
+enable_COASSEMBLY: no
 COASSEMBLY:
   'Full': CD136+CD138+CD140+CD142+CD146+CD237+CD238+CD240+CD242+CD244
   'CD1': CD136+CD138+CD140+CD142+CD146
   'CD2': CD237+CD238+CD240+CD242+CD244
   SCL2: CD140+CD142+CD138+CD146
-  SCL4: CD237+CD240+CD238+CD242
+  SCL4: CD237+CD240+CD242+CD238

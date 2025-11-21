@@ -14,13 +14,12 @@ METADATA: /mypath/IBD_tutorial/tutorial_metadata.txt
 MAIN_factor: participant_ID2
 
 ######################
-# Program settings
+# Assembler settings
 ######################
 # MetaSPAdes settings
 #
 METASPADES_qoffset: auto
 METASPADES_threads: 16
-METASPADES_memory: 10
 METASPADES_hybrid_max_k: 99
 METASPADES_illumina_max_k: 99
 
@@ -40,8 +39,8 @@ MEGAHIT_threads: 32
 MEGAHIT_presets:
  - meta-sensitive
  - meta-large
-MEGAHIT_custom:
- - 21,29,39,59,79,99,119,141
+#MEGAHIT_custom:
+# - 21,29,39,59,79,99,119,141
 
 # MetaFlye settings
 #
@@ -85,21 +84,24 @@ MAX_RAM_GB_PER_JOB: 180
 #     - illumina_single
 # ---
 #
-# EXCLUDE_ASSEMBLY_TYPES:
-
 EXCLUDE_ASSEMBLY_TYPES:
- - illumina_coas
+    - illumina_coas
 
-# Contig-depth: bwa-mem2 settings
+# binning_prep settings
 # Used when mapping reads back to contigs
-#
-# BWA Alignment
-BWA_threads: 10
 
-# Contig-depth: samtools sort settings
+# Which aligner or mapper to use: 'bwa' or 'strobealign'
+ALIGNER_type: bwa
+ALIGNER_threads: 10
+
+# samtools sort settings when using 'bwa' for mapping
 # Used when sorting bam files using 3 threads
 # Memory listed below is PER-THREAD, so please make sure you have enough
 SAMTOOLS_sort_perthread_memgb: 10
+
+# Should I cache contig DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
 
 ###############################
 # Input data
@@ -199,4 +201,8 @@ COASSEMBLY:
   'CD1': CD136+CD138+CD140+CD142+CD146
   'CD2': CD237+CD238+CD240+CD242+CD244
   SCL2: CD140+CD142+CD138+CD146
-  SCL4: CD237+CD240+CD238+CD242
+  SCL4: CD237+CD240+CD242+CD238
+
+MEGAHIT_custom:
+ - 21,29,39,59,79,99,119,141
+ - 21,29,39,59,79,99

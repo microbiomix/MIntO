@@ -14,6 +14,7 @@ import os.path
 
 GLOBAL_CONFIG_KEYTYPES = {
     'abundance_normalization' : str,
+    'ALIGNER_threads' : int,
     'ALIGNER_type' : str,
     'alignment_identity' : int,
     'ANNOTATION_file' : 'file',
@@ -50,6 +51,7 @@ GLOBAL_CONFIG_KEYTYPES = {
     'HYBRID' : dict,
     'ILLUMINA' : [list, 'file', str],
     'ILLUMINA_suffix' : list,
+    'LOCAL_DATABASE_CACHE_DIR' : str,
     'MAG_omics' : str,
     'MAIN_factor' : str,
     'MAX_RAM_GB_PER_JOB' : int,
@@ -130,6 +132,7 @@ GLOBAL_CONFIG_KEYTYPES = {
 ALIASES = {
     'READ_minlen' : ['TRIMMOMATIC_minlen'],
     'FASTP_adapters' : ['FASTP_adaptors'],
+    'ALIGNER_threads' : ['BWA_threads', 'BWA_host_threads'],
     'TRIMMOMATIC_adaptors' : ['TRIMMOMATIC_adapters']
 }
 
