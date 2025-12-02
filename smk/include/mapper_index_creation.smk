@@ -95,7 +95,7 @@ rule STROBEALIGN_index:
         mem = lambda wildcards, input, attempt: 5 + int((13 if input.fasta.endswith('.gz') else 4)*get_file_size_gb(input.fasta)) + 40*(attempt-1),
     threads: 8
     conda:
-        config["minto_dir"]+"/envs/strobealign.yml" #bwa-mem2
+        config["minto_dir"]+"/envs/MIntO_base.yml" #strobealign
     shell:
         """
         time (
