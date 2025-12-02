@@ -720,8 +720,7 @@ rule combine_annotation_batches:
         """
         time (
             head -n 2 {input[0]} > out.txt
-            FOLDER=$(dirname {input[0]})
-            tail -n +3 -q $FOLDER/*.tsv >> out.txt
+            tail -n +3 -q {input} >> out.txt
             rsync -a out.txt {output}
         ) >& {log}
         """
