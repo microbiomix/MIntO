@@ -1280,7 +1280,7 @@ ANNOTATION:
 # Gene abundance settings
 #########################
 
-# Which aligner or mapper to use: currently only 'bwa' is supported
+# Which aligner or mapper to use: 'bwa' or 'strobealign' is supported
 ALIGNER_type: bwa
 ALIGNER_threads: 10
 
