@@ -32,7 +32,7 @@ module print_versions:
         'include/versions.smk'
     config: config
 
-use rule mags_base, mags_rpkg, mags_checkm2 from print_versions as version_*
+use rule mags_base, mags_contigtax, mags_checkm2 from print_versions as version_*
 
 snakefile_name = print_versions.get_smk_filename()
 

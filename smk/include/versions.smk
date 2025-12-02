@@ -170,6 +170,7 @@ rule QC_2_base:
         echo "MIntO git commit $(cd {minto_dir} && git show --pretty=reference -q && cd - > /dev/null)" > $VOUT
         seqkit version >> $VOUT
         echo "bwa-mem2 v$(bwa-mem2 version 2> /dev/null)" >> $VOUT
+        echo "strobealign v$(strobealign --version)" >> $VOUT
         echo "msamtools $(msamtools 2>&1 | grep "Version" | cut -d" " -f 2)" >> $VOUT
         echo "samtools $(samtools 2>&1 | grep "Version" | cut -d" " -f 2)" >> $VOUT
         echo "$(sortmerna 2>&1 | grep "Program" | cut -d" " -f 9-11)" >> $VOUT
@@ -275,6 +276,7 @@ rule binning_preparation_base:
         VOUT={wildcards.wd}/output/versions/{snakefile_name}.$(date "+%Y-%m-%d").txt
         echo "MIntO git commit $(cd {minto_dir} && git show --pretty=reference -q && cd - > /dev/null)" > $VOUT
         echo "bwa-mem2 v$(bwa-mem2 version 2> /dev/null)" >> $VOUT
+        echo "strobealign v$(strobealign --version)" >> $VOUT
         echo "msamtools $(msamtools 2>&1 | grep "Version" | cut -d" " -f 2)" >> $VOUT
         echo "samtools $(samtools 2>&1 | grep "Version" | cut -d" " -f 2)" >> $VOUT
         coverm --version >> $VOUT
@@ -320,27 +322,28 @@ rule mags_base:
         touch {output}
         """
 
-rule mags_avamb:
+rule mags_contigtax:
     localrule: True
     input:
         "{wd}/output/versions/mags_base.flag"
     output:
-        temp("{wd}/output/versions/mags_avamb.flag")
+        temp("{wd}/output/versions/mags_contigtax.flag")
     resources:
         mem=1
     threads: 1
     conda:
-        minto_dir + "/envs/avamb.yml"
+        minto_dir + "/envs/contig_taxonomy.yml"
     shell:
         """
-        vamb --version >> {wildcards.wd}/output/versions/{snakefile_name}.$(date "+%Y-%m-%d").txt
+        mmseqs | grep "Version" >> {wildcards.wd}/output/versions/{snakefile_name}.$(date "+%Y-%m-%d").txt
+        metabuli | grep "Version" >> {wildcards.wd}/output/versions/{snakefile_name}.$(date "+%Y-%m-%d").txt
         touch {output}
         """
 
 rule mags_checkm2:
     localrule: True
     input:
-        "{wd}/output/versions/mags_base.flag"
+        "{wd}/output/versions/mags_contigtax.flag"
     output:
         temp("{wd}/output/versions/mags_generation.flag")
     resources:
@@ -377,6 +380,7 @@ rule annotation_base:
         VOUT={wildcards.wd}/output/versions/{snakefile_name}.$(date "+%Y-%m-%d").txt
         echo "MIntO git commit $(cd {minto_dir} && git show --pretty=reference -q && cd - > /dev/null)" > $VOUT
         prokka --version >> $VOUT 2>&1
+        echo "pyhmmer v$({minto_dir}/scripts/hmmsearch --version)" >> $VOUT
         echo "kofamscan v$(exec_annotation --version | cut -d" " -f 2)" >> $VOUT
         conda list | sed -E 's|[[:space:]]+| |g' | cut -d" " -f 1-2 | grep -P "{params.p1}" >> $VOUT
         conda list | sed -E 's|[[:space:]]+| |g' | cut -d" " -f 1-2 | grep -P "{params.p2}" >> $VOUT
@@ -395,6 +399,9 @@ rule annotation_base:
         echo "Module to KO file creation date $(stat -c '%y' {minto_dir}/data/kofam_db/KEGG_Module2KO.tsv | cut -d" " -f 1)" >> $VOUT
         echo "Pathway to KO file creation date $(stat -c '%y' {minto_dir}/data/kofam_db/KEGG_Pathway2KO.tsv | cut -d" " -f 1)" >> $VOUT
 
+        echo "#----" >> $VOUT
+        echo "kegg-pathways-completeness v$(give_completeness --version | cut -d" " -f 2)" >> $VOUT
+        
         touch {output}
         """
 
@@ -456,6 +463,7 @@ rule abundance_base:
         VOUT={wildcards.wd}/output/versions/{snakefile_name}.$(date "+%Y-%m-%d").txt
         echo "MIntO git commit $(cd {minto_dir} && git show --pretty=reference -q && cd - > /dev/null)" > $VOUT
         echo "bwa-mem2 v$(bwa-mem2 version 2> /dev/null)" >> $VOUT
+        echo "strobealign v$(strobealign --version)" >> $VOUT
         echo "msamtools $(msamtools 2>&1 | grep "Version" | cut -d" " -f 2)" >> $VOUT
         echo "samtools $(samtools 2>&1 | grep "Version" | cut -d" " -f 2)" >> $VOUT
         touch {output}
