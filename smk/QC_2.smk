@@ -93,8 +93,12 @@ if read_min_len < 50:
     read_min_len = 50
 
 ##############################################
-# BWA for host genome filtering
+# Host genome filtering
 ##############################################
+
+valid_aligner_types = ['bwa', 'strobealign']
+ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
+check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
 
 ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
 local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
@@ -308,47 +312,56 @@ rule qc2_host_filter:
     input:
         pairead_fw = rules.qc2_length_filter.output.paired1,
         pairead_rv = rules.qc2_length_filter.output.paired2,
-        bwaindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", "bwa")
+        hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type)
     output:
         host_free_fw = "{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz",
         host_free_rv = "{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz",
     shadow:
         "minimal"
     log:
-        "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome_BWA.log"
+        "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome.log"
     wildcard_constraints:
         omics='metaG'
     resources:
-        mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.bwaindex[0])) + 10*(attempt-1)
+        mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
     threads:
         ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
-        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0])),
     conda:
         minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
     shell:
         """
         remote_dir=$(dirname {output.host_free_fw:q})
-        time (
             # Stage index files locally if needed
             # Set db_name accordingly
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir:q}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.bwaindex}
-                db_name={local_cache_dir:q}/{input.bwaindex[0]}
+                stage_multiple_files_in {params.final_destination:q} {input.hostindex}
+                db_name={local_cache_dir:q}/{input.hostindex[0]}
             else
-                db_name={input.bwaindex[0]}
+                db_name={input.hostindex[0]}
             fi
 
-            # Remove the index file extension to get db_name argument to bwa
-            db_name=${{db_name%.0123}}
-
-            bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+            # Remove the index file extension to get db_name argument and run aligner
+            if [[ "{ALIGNER_type:q}" == "bwa" ]]; then
+                db_name=${{db_name%.0123}}
+                time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
                   | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
                   | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
-            rsync -a * $remote_dir/
-        ) >& {log}
+                rsync -a * $remote_dir/
+                ) >& {log}
+            elif [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
+                db_name=${{db_name%.r150.sti}}
+                time (strobealign --use-index -r 150 -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                  | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
+                  | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
+                rsync -a * $remote_dir/
+                ) >& {log}
+            else
+                echo "ERROR: No index for {ALIGNER_type}" > {log}
+            fi
         """
 
 # derived rule: metaT - output is temporary
