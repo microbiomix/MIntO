@@ -15,6 +15,11 @@ def open_file(fn):
     return of
 
 def main(args):
+    if args.version:
+        import pyhmmer
+        print(pyhmmer.__version__)
+        sys.exit()
+    
     # for kofamscan to force it to use 8 processes instead of 1
     if (args.cpu == 1) and not args.force_single_cpu:
         args.cpu = 8
@@ -76,6 +81,7 @@ if __name__ == '__main__':
     parser.add_argument("-domT", type = float, default = 0, dest='domT', help="report individual domains >= this score threshold in output")
     parser.add_argument("--cpu", type = int, default = 8, help="number of parallel workers to use in pool")
     parser.add_argument("--force_single_cpu", action="store_true", help="extra flag for single threading")
+    parser.add_argument("--version", action="store_true", help="print version")
     
     args = parser.parse_args()
     
