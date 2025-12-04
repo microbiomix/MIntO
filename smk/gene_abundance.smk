@@ -425,7 +425,8 @@ rule genome_mapping_sba_profiling:
         fwd        = get_fwd_files_only,
         rev        = get_rev_files_only,
         bed_mini   = "{wd}/DB/{minto_mode}/{minto_mode}-genes.bed.mini",
-        frag_count = "{wd}/output/2-qc/{omics}.readcounts.txt"
+        frag_count = "{wd}/output/2-qc/{omics}.readcounts.txt",
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
     output:
         sba_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.log",
         raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
@@ -475,21 +476,21 @@ rule genome_mapping_sba_profiling:
         # Figure out index db
         ###########################
 
+        # Get mean length parameter for sba
+        r_arg="$(cat {input.meanlen_txt})"
+
         # Stage index files locally if needed
         # Set db_name accordingly
 
         if [ "{params.staging}" == "yes" ]; then
             source {minto_dir:q}/include/file_staging_functions.sh
             echo "Using local cache of index files" > {log}
-            stage_multiple_files_in {params.final_destination:q} {input.sbaindex} &>> {log}
+            stage_multiple_files_in {params.final_destination:q} {input.sbaindex[0]} {input.sbaindex[0]}.r${{r_arg}}.sti &>> {log}
             db_name={local_cache_dir:q}/{input.sbaindex[0]}
         else
             echo "Using original index files" > {log}
             db_name={input.sbaindex[0]}
         fi
-
-        # Remove the index file extension to get db_name argument to strobealign
-        db_name=${{db_name%.r150.sti}}
 
         ###########################
         # Estimate samtools sort memory
@@ -503,7 +504,7 @@ rule genome_mapping_sba_profiling:
         # Do the mapping and profiling
         ###########################
 
-        (time (strobealign --use-index -r 150 -t {threads} $db_name $input_files | \
+        (time (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
                     msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
             total_reads="$(grep {wildcards.sample} {input.frag_count} | cut -f 3)"
             #echo $total_reads
@@ -638,7 +639,8 @@ rule gene_catalog_mapping_sba_profiling:
         sbaindex = lambda wildcards: get_fasta_index_path(f"{gene_catalog_path}/{gene_catalog_name}", "strobealign"),
         fwd      = get_fwd_files_only,
         rev      = get_rev_files_only,
-        frag_count = "{wd}/output/2-qc/{omics}.readcounts.txt"
+        frag_count = "{wd}/output/2-qc/{omics}.readcounts.txt",
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
     output:
         sba_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.log",
         profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.TPM.txt.gz",
@@ -677,23 +679,22 @@ rule gene_catalog_mapping_sba_profiling:
             input_files="{input.fwd} {input.rev}"
         fi
 
+        # Get mean length parameter for sba
+        r_arg="$(cat {input.meanlen_txt})"
+
         time (
             # Stage index files locally if needed
             # Set db_name accordingly
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir:q}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex[0]} {input.sbaindex[0]}.r${{r_arg}}.sti
                 db_name={local_cache_dir:q}/{input.sbaindex[0]}
             else
                 db_name={input.sbaindex[0]}
             fi
 
-            # Remove the index file extension to get db_name argument to sba
-            db_name=${{db_name%.r150.sti}}
-
-
             # Do the mapping
-            (strobealign --use-index -r 150 -t {threads} $db_name $input_files | \
+            (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
                 msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
             total_reads="$(grep {wildcards.sample} {input.frag_count} | cut -f 3)"
             #echo $total_reads

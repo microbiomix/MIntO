@@ -307,12 +307,33 @@ rule qc2_length_filter:
 # For metaT, it is not.
 # Therefore, mark it as temp() only for metaT using rule inheritance with different wildcard_constraints.
 
+rule qc2_sba_mean_length:
+    localrule: True
+    input:
+        "{wd}/{omics}/1-trimmed/samples_read_length.txt"
+    output:
+        "{wd}/output/2-qc/{omics}.mean_length.txt"
+    params:
+        read_length_cutoff=read_min_len
+    resources:
+        mem=2
+    threads: 2
+    log:
+        "{wd}/logs/{omics}/sba_mean_len.log"
+    conda:
+        minto_dir + "/envs/r_pkgs.yml"
+    shell:
+        """
+        Rscript {script_dir}/sba_mean_length.R --input {input} --min_len {params.read_length_cutoff} --out_meanlen {output}
+        """
+
 # main rule: metaG - output is not temporary
 rule qc2_host_filter:
     input:
         pairead_fw = rules.qc2_length_filter.output.paired1,
         pairead_rv = rules.qc2_length_filter.output.paired2,
-        hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type)
+        hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type),
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
     output:
         host_free_fw = "{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz",
         host_free_rv = "{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz",
@@ -334,34 +355,39 @@ rule qc2_host_filter:
     shell:
         """
         remote_dir=$(dirname {output.host_free_fw:q})
-            # Stage index files locally if needed
-            # Set db_name accordingly
-            if [ "{params.staging}" == "yes" ]; then
-                source {minto_dir:q}/include/file_staging_functions.sh
+        # Stage index files locally if needed
+        # Set db_name accordingly
+        if [ "{params.staging}" == "yes" ]; then
+            source {minto_dir:q}/include/file_staging_functions.sh            
+            if [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
+                r_arg="$(cat {input.meanlen_txt})"
+                stage_multiple_files_in {params.final_destination:q} {input.hostindex[0]} {input.hostindex[0]}.r${{r_arg}}.sti;
+            else
                 stage_multiple_files_in {params.final_destination:q} {input.hostindex}
-                db_name={local_cache_dir:q}/{input.hostindex[0]}
-            else
-                db_name={input.hostindex[0]}
             fi
+            db_name={local_cache_dir:q}/{input.hostindex[0]}
+        else
+            db_name={input.hostindex[0]}
+        fi
 
-            # Remove the index file extension to get db_name argument and run aligner
-            if [[ "{ALIGNER_type:q}" == "bwa" ]]; then
-                db_name=${{db_name%.0123}}
-                time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
-                  | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
-                  | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
-                rsync -a * $remote_dir/
-                ) >& {log}
-            elif [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
-                db_name=${{db_name%.r150.sti}}
-                time (strobealign --use-index -r 150 -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
-                  | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
-                  | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
-                rsync -a * $remote_dir/
-                ) >& {log}
-            else
-                echo "ERROR: No index for {ALIGNER_type}" > {log}
-            fi
+        # Remove the index file extension to get db_name argument and run aligner
+        if [[ "{ALIGNER_type:q}" == "bwa" ]]; then
+            db_name=${{db_name%.0123}}
+            time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
+                | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
+            rsync -a * $remote_dir/
+            ) >& {log}
+        elif [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
+            r_arg="$(cat {input.meanlen_txt})"
+            time (strobealign --use-index -r $r_arg -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
+                | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
+            rsync -a * $remote_dir/
+            ) >& {log}
+        else
+            echo "ERROR: No index for {ALIGNER_type}" > {log}
+        fi
         """
 
 # derived rule: metaT - output is temporary

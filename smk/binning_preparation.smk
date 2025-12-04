@@ -476,7 +476,8 @@ rule map_strobealign:
         sbaindex=get_assembly_batch_index_files,
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
-        maxfrag=rules.set_max_mapcount.output
+        maxfrag=rules.set_max_mapcount.output,
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
     output:
         depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
     shadow:
@@ -495,13 +496,13 @@ rule map_strobealign:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
     conda:
-        minto_dir + "/envs/strobealign.yml"
+        minto_dir + "/envs/MIntO_base.yml"
     shell:
         """
         mkdir -p $(dirname {output})
 
         max_mapped_fragcount=$(grep "^{wildcards.illumina}$(printf '\\t')" {input.maxfrag} | cut -f 2 )
-        
+
         # Make named pipes if needed
         if [[ $max_mapped_fragcount != "None" ]]; then
             mkfifo {wildcards.illumina}.1.fq
@@ -515,21 +516,21 @@ rule map_strobealign:
             input_files="{input.fwd} {input.rev}"
         fi
 
+        # Get mean length parameter for sba
+        r_arg="$(cat {input.meanlen_txt})"
+            
         time (
             # Stage index files locally if needed
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta:q}
+                stage_multiple_files_in {params.final_destination:q} {input.fasta:q} {input.sbaindex[0]}.r${{r_arg}}.sti
                 db_name={local_cache_dir:q}/{input.sbaindex[0]}
             else
                 db_name={input.sbaindex[0]}
             fi
 
-            # Remove the index file extension to get db_name argument to bwa
-            db_name=${{db_name%.r150.sti}}
-
             # fixed mean read length
-            strobealign -t {threads} -r 150 --use-index --aemb $db_name $input_files > abundances.tsv
+            strobealign -t {threads} -r $r_arg --use-index --aemb $db_name $input_files > abundances.tsv
             gzip -2 abundances.tsv
             rsync -a abundances.tsv.gz {output.depth:q}
         ) >& {log}

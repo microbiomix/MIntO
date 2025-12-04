@@ -17,14 +17,14 @@ def get_fasta_index_path(fasta, mapper):
 
     # Enumerate the index files
     if my_mapper == "BWA":
-        ext_list = ['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac']
+        ext_list = ['.0123', '.amb', '.ann', '.bwt.2bit.64', '.pac']
     elif my_mapper == "STROBEALIGN":
-        ext_list = ['r150.sti']
+        ext_list = ['']
     else:
         raise Exception(f"MIntO error: Unexpected value: MAPPER='{my_mapper}'. Must be one of {BWA, STROBEALIGN}")
 
     # Return a list of the index files
-    index_files = expand("{location}/{mapname}_index/{filename}.{ext}",
+    index_files = expand("{location}/{mapname}_index/{filename}{ext}",
                          location = basedir,
                          mapname  = my_mapper,
                          filename = filename,
@@ -82,12 +82,12 @@ rule BWA_index:
 # New attempts: +40 GB each time
 rule STROBEALIGN_index:
     input:
-        fasta="{somewhere}/{something}.{fasta}"
+        fasta="{somewhere}/{something}.{fasta}",
+        meanlen_txt=f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
     output:
-        index="{somewhere}/STROBEALIGN_index/{something}.{fasta}.r150.sti",
         fasta="{somewhere}/STROBEALIGN_index/{something}.{fasta}"
     log:
-        "{somewhere}/STROBEALIGN_index/sba_index.{something}.{fasta}.log"
+        "{somewhere}/STROBEALIGN_index/sba_index.{omics}.{something}.{fasta}.log"
     wildcard_constraints:
         fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
         something = r'[^/]+'
@@ -99,10 +99,11 @@ rule STROBEALIGN_index:
     shell:
         """
         time (
+            r_arg="$(cat {input.meanlen_txt})"
             # strobealign does realpath on input file and places sti there.
             # so hardlink source fasta file into the same directory as index, 
             # since softlink will resolve to original location.
             ln --force {input.fasta} {output.fasta}
-            strobealign --create-index -t {threads} {output.fasta} -r 150
+            strobealign --create-index -t {threads} {output.fasta} -r $r_arg
         ) >& {log}
         """
