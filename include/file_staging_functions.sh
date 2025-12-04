@@ -184,7 +184,7 @@ stage_multiple_files_in() {
     }
 
     # Jitter: wait for a random amount of seconds (1–60) to avoid stampedes
-    #sleep $((RANDOM % 60 + 1))
+    sleep $((RANDOM % 60 + 1))
 
     # Get one of five host-specific locks randomly
     # Determine stable lock id based on host name
