@@ -497,17 +497,25 @@ READ_minlen: $(cat {input.cutoff_file})
 # Host genome filtering
 #########################
 
-# bwa-mem2 index files will be stored at: <PATH_host_genome>/BWA_index/<NAME_host_genome>.*
-# If it already exists, then it will be used directly.
-# If not, a fasta file should exist as: <PATH_host_genome>/<NAME_host_genome>
-# This will be build into index files using:
-#    bwa-mem2 index -p <PATH_host_genome>/BWA_index/<NAME_host_genome> <PATH_host_genome>/<NAME_host_genome>
+# Path of the host genome file: <PATH_host_genome>/<NAME_host_genome>
+# Inferred location for bwa-mem2/strobealign index files: <PATH_host_genome>/{{BWA|STROBEALIGN}}_index/<NAME_host_genome>.*
+# If index files already exist, then they will be used directly.
+# If not, a fasta file should exist exactly as: <PATH_host_genome>/<NAME_host_genome>
+#   which will be used to build the index files in the inferred location above.
 
-PATH_host_genome:
-NAME_host_genome:
-BWA_index_host_memory: 100
-BWA_host_threads: 8
-BWA_host_memory: 40
+PATH_host_genome: None
+NAME_host_genome: None
+
+# Should host genome index files be cached in a local mirror?
+# If yes, set the path here.
+# If no,  set it to None
+
+LOCAL_DATABASE_CACHE_DIR: None
+
+# Which aligner or mapper to use: currently only 'bwa' is supported
+
+ALIGNER_type: bwa
+ALIGNER_threads: 8
 ___EOF___
 
         if [ "{omics}" == "metaT" ]; then
@@ -569,18 +577,36 @@ MAIN_factor:
 PLOT_factor2:
 PLOT_time:
 
+#####################
+# Co-assembly grouping
+#####################
+
+# COAS_factor - The factor/attribute to use to group samples for co-assembly
+
+COAS_factor:
+
 ######################
 # Optionally, do you want to merge replicates or make pseudo samples
 # E.g:
 # MERGE_ILLUMINA_SAMPLES:
-#  - merged=rep1+rep2+rep3
+#  sample1: rep1a+rep1b+rep1c
+#  sample2: rep2a+rep2b+rep2c
 #
-# The above directive will combine 3 samples (rep1, rep2 and rep3)
-# after the last step into a new sample called 'merged'. Now you can remove
-# rep1, rep2 and rep3 from assembly, MAG generation and profiling steps.
-# Please note that METADATA file must have an entry for 'merged' as well,
+# The above directive will make 2 new composite or pseudo samples at the end of QC_2.
+# Imagine you had triplicates for sample1 named as rep1a, rep1b and rep1c.
+# And likewise for sample2. The directive above will:
+#     - combine 3 samples (rep1a, rep1b and rep1c)into a new sample called 'sample1'.
+#     - combine 3 samples (rep2a, rep2b and rep2c)into a new sample called 'sample2'.
+# For all subsequent steps, namely:
+#     - profiling (done within this snakemake script),
+#     - assembly (done by assembly.smk),
+#     - binning (done by binning_preparation.smk and mags_generation.smk),
+# you can just use 'sample2' instead of the replicates rep2a, rep2b and rep2c in the yaml files.
+# Please note that METADATA file must have an entry for 'sample2' as well,
 # otherwise QC_2 step will fail.
 # Having extra entries in METADATA file does not affect you in any way.
+# Therefore, it is safe to have metadata recorded for
+# rep2a, rep2b, rep2c, sample2 from the beginning.
 ######################
 
 #MERGE_ILLUMINA_SAMPLES:
