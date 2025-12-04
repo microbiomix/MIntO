@@ -71,9 +71,11 @@ stage_file_in() {
         return 2
     fi
 
+    local host=${HOSTNAME:-$(hostname)}
+
     # Make sure the target directory exists
     mkdir -p -- "$local_dir" || {
-        echo "Cannot create directory: $local_dir" >&2
+        echo "ERROR: [$host] Cannot create directory: $local_dir" >&2
         return 1
     }
 
@@ -107,14 +109,14 @@ stage_file_in() {
             acquired=1
             break
         else
-            echo "WARN: flock failed on $remote_lock (attempt $attempt), retrying in 60 seconds..." >&2
+            echo "WARN: [$host] flock failed on $remote_lock (attempt $attempt), retrying in 60 seconds..." >&2
             sleep 60
         fi
     done
 
     # handle failure
     if [ "$acquired" -ne 1 ]; then
-        echo "ERROR: Could not acquire lock on $remote_lock after $attempt retries" >&2
+        echo "ERROR: [$host] Could not acquire lock on $remote_lock after $attempt retries" >&2
         exec 9>&-
         return 1
     fi
@@ -125,12 +127,12 @@ stage_file_in() {
     # Acquire an exclusive lock on the local copy lockfile
     ####
     exec 8> "$local_lock" || {
-        echo "Cannot open lock file $local_lock" >&2
+        echo "ERROR: [$host] Cannot open lock file $local_lock" >&2
         exec 9>&-
         return 1
     }
     if ! flock -w 3600 8; then
-        echo "Could not acquire lock on $local_lock within 3600 seconds" >&2
+        echo "ERROR: [$host] Could not acquire lock on $local_lock within 3600 seconds" >&2
         exec 8>&-
         exec 9>&-
         return 1
@@ -148,7 +150,7 @@ stage_file_in() {
 
     if ! rsync --itemize-changes -a -- "$remote_file" "$local_copy"; then
         rsync_rc=$?
-        echo "rsync failed for $remote_file -> $local_copy (rc=$rsync_rc)." >&2
+        echo "ERROR: [$host] rsync failed for $remote_file -> $local_copy (rc=$rsync_rc)." >&2
         exec 8>&-
         exec 9>&-
         return 1
@@ -195,10 +197,10 @@ stage_multiple_files_in() {
 
     # Stage files one by one
     for remote in "$@"; do
-        echo "Staging: $remote -> $local_location" >&2
+        echo "INFO: [$host] Staging: $remote -> $local_location" >&2
         # Let stage_file_in handle its own mkdir/locking/rsync logic
         if ! stage_file_in "$local_location" "$lock_id" "$remote"; then
-            echo "Failed to stage $remote to $local_location" >&2
+            echo "ERROR: [$host] Failed to stage $remote to $local_location" >&2
             return 1
         fi
     done
