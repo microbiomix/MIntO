@@ -94,12 +94,7 @@ if read_min_len < 50:
 
 ##############################################
 # Host genome filtering
-# Host genome filtering
 ##############################################
-
-valid_aligner_types = ['bwa', 'strobealign']
-ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
-check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
 
 valid_aligner_types = ['bwa', 'strobealign']
 ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
@@ -346,17 +341,14 @@ rule qc2_host_filter:
         "minimal"
     log:
         "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome.log"
-        "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome.log"
     wildcard_constraints:
         omics='metaG'
     resources:
-        mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
         mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
     threads:
         ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
-        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0])),
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0])),
     conda:
         minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
@@ -1314,7 +1306,6 @@ ANNOTATION:
 # Gene abundance settings
 #########################
 
-# Which aligner or mapper to use: 'bwa' or 'strobealign' is supported
 # Which aligner or mapper to use: 'bwa' or 'strobealign' is supported
 ALIGNER_type: bwa
 ALIGNER_threads: 10
