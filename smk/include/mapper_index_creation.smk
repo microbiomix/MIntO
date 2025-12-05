@@ -87,7 +87,7 @@ rule STROBEALIGN_index:
     output:
         fasta="{somewhere}/STROBEALIGN_index/{something}.{fasta}"
     log:
-        "{somewhere}/STROBEALIGN_index/sba_index.{omics}.{something}.{fasta}.log"
+        "{somewhere}/STROBEALIGN_index/sba_index.{something}.{fasta}.log"
     wildcard_constraints:
         fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
         something = r'[^/]+'
