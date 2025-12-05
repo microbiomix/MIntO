@@ -33,6 +33,16 @@
 #   - LOCAL_DIR is node-local storage (e.g. /scratch, /tmp, /local).
 #   - REMOTE_FILE is accessible via shared FS (NFS / Lustre / GPFS).
 #   - rsync is available on execution nodes.
+#   - The filesystem holding REMOTE_FILE supports POSIX advisory locking
+#     (flock). On problematic NFS mounts, you may see:
+#         "flock: <fd>: No locks available"
+#     In that case, consult your cluster admins or switch to a mkdir-based
+#     locking scheme.
+#
+#   - To test locking support on REMOTE_FILE's filesystem, run on a node:
+#         touch /path/on/nfs/test.lock
+#         flock -x /path/on/nfs/test.lock -c 'echo "lock ok"; sleep 5'
+#     This should print "lock ok" and exit without errors.
 #
 # ---------------------------------------------------------------------------
 
@@ -61,9 +71,11 @@ stage_file_in() {
         return 2
     fi
 
+    local host=${HOSTNAME:-$(hostname)}
+
     # Make sure the target directory exists
     mkdir -p -- "$local_dir" || {
-        echo "Cannot create directory: $local_dir" >&2
+        echo "ERROR: [$host] Cannot create directory: $local_dir" >&2
         return 1
     }
 
@@ -75,26 +87,52 @@ stage_file_in() {
     remote_lock="${remote_file}.lock.${lock_id}"
     local_lock="${local_copy}.lock"
 
+    ####
     # Acquire an exclusive lock on the remote lockfile
+    #  - Sometimes NFS fails to provide the lock on the file.
+    #    This is why we try it 10 times with 60s waits
+    #    in between, to catch the random inability of the kernel
+    #    to provide the lock.
+    ####
+
+    # Prepare the lock file
     exec 9> "$remote_lock" || {
         echo "Cannot open lock file $remote_lock" >&2
         return 1
     }
-    # Wait up to 3600s to acquire the lock
-    if ! flock -w 3600 9; then
-        echo "Could not acquire lock on $remote_lock within 3600 seconds" >&2
+
+    # Attempt to lock the file
+    local acquired=0
+    local attempt
+    for attempt in $(seq 1 10); do
+        if flock -w 60 9; then
+            acquired=1
+            break
+        else
+            echo "WARN: [$host] flock failed on $remote_lock (attempt $attempt), retrying in 60 seconds..." >&2
+            sleep 60
+        fi
+    done
+
+    # handle failure
+    if [ "$acquired" -ne 1 ]; then
+        echo "ERROR: [$host] Could not acquire lock on $remote_lock after $attempt retries" >&2
         exec 9>&-
         return 1
     fi
 
+    # If we are here, NFS lock succeeded!
+
+    ####
     # Acquire an exclusive lock on the local copy lockfile
+    ####
     exec 8> "$local_lock" || {
-        echo "Cannot open lock file $local_lock" >&2
+        echo "ERROR: [$host] Cannot open lock file $local_lock" >&2
         exec 9>&-
         return 1
     }
     if ! flock -w 3600 8; then
-        echo "Could not acquire lock on $local_lock within 3600 seconds" >&2
+        echo "ERROR: [$host] Could not acquire lock on $local_lock within 3600 seconds" >&2
         exec 8>&-
         exec 9>&-
         return 1
@@ -103,33 +141,23 @@ stage_file_in() {
     # At this point we hold both locks (FDs 9 and 8).
     # But ONLY for the duration of the rsync loop.
 
-    local attempts=0
     local rsync_rc=0
 
-    # We set max_attempts to 1, as it is designed for use from within Snakemake
+    # Here, we only try once, as it is designed for use from within Snakemake
     # where "fail early" is the best approach. There might already be a
     # "--restart-times=N" option given to Snakemake, which might make this
-    # even slower to catch an error when max_attempts > 1.
-    while (( attempts < 1 )); do
-        if rsync --itemize-changes -a -- "$remote_file" "$local_copy"; then
-            rsync_rc=0
-            break
-        fi
+    # even slower to catch an error when we try multiple times.
+
+    if ! rsync --itemize-changes -a -- "$remote_file" "$local_copy"; then
         rsync_rc=$?
-        attempts=$(( attempts + 1 ))
-        echo "rsync failed for $remote_file -> $local_copy (attempt $attempts, rc=$rsync_rc), retrying..." >&2
-        sleep 1
-    done
-
-    # release the locks before returning
-    exec 8>&-
-    exec 9>&-
-
-    if (( attempts == 10 )); then
-        echo "Staging $remote_file to $local_copy failed after $attempts attempts (last rc=$rsync_rc)." >&2
-        echo "Please copy it manually or investigate network/storage issues." >&2
+        echo "ERROR: [$host] rsync failed for $remote_file -> $local_copy (rc=$rsync_rc)." >&2
+        exec 8>&-
+        exec 9>&-
         return 1
     fi
+
+    exec 8>&-
+    exec 9>&-
 
     # No need to rm lock files. The locks are released automatically when
     # the shell closes FDs 8 and 9 (i.e. when this function/parent shell exits).
@@ -144,7 +172,7 @@ stage_multiple_files_in() {
 
     # Require at least 2 arguments: local dir, and at least one remote file
     if [[ -z "$local_location" || $# -lt 2 ]]; then
-        echo "Usage: stage_multiple_files_in LOCAL_DIR LOCK_ID REMOTE_FILE1 [REMOTE_FILE2 ...]" >&2
+        echo "Usage: stage_multiple_files_in LOCAL_DIR REMOTE_FILE1 [REMOTE_FILE2 ...]" >&2
         return 2
     fi
 
@@ -158,7 +186,7 @@ stage_multiple_files_in() {
     }
 
     # Jitter: wait for a random amount of seconds (1–60) to avoid stampedes
-    #sleep $((RANDOM % 60 + 1))
+    sleep $((RANDOM % 60 + 1))
 
     # Get one of five host-specific locks randomly
     # Determine stable lock id based on host name
@@ -169,10 +197,10 @@ stage_multiple_files_in() {
 
     # Stage files one by one
     for remote in "$@"; do
-        echo "Staging: $remote -> $local_location" >&2
+        echo "INFO: [$host] Staging: $remote -> $local_location" >&2
         # Let stage_file_in handle its own mkdir/locking/rsync logic
         if ! stage_file_in "$local_location" "$lock_id" "$remote"; then
-            echo "Failed to stage $remote to $local_location" >&2
+            echo "ERROR: [$host] Failed to stage $remote to $local_location" >&2
             return 1
         fi
     done
@@ -181,31 +209,31 @@ stage_multiple_files_in() {
 }
 
 stage_file_out() {
-	local local_file=$1;
-	local remote_dir=$2;
+	local local_file=$1
+	local remote_dir=$2
 	if [ -z "$remote_dir" ]; then
-		echo "Usage: stage_file_out local-file remote-dir" 1>&2;
-		exit 2;
+		echo "Usage: stage_file_out local-file remote-dir" 1>&2
+		exit 2
 	fi;
 
-	local file=$(basename $local_file);
-	local remote_copy="$remote_dir/$file";
+	local file=$(basename $local_file)
+	local remote_copy="$remote_dir/$file"
 
-	local attempts=0;
-	local copy=1;
+	local attempts=0
+	local copy=1
 	while [ $attempts -lt 10 -a $copy -eq 1 ]; do
-		rsync -q -ptg $local_file $remote_copy;
+		rsync -q -ptg -- "$local_file" "$remote_copy"
 		if [ $? -ne 0 ] ; then  # rsync failed!
-			copy=1;
-			attempts=$(expr $attempts + 1);
+			copy=1
+			attempts=$(expr $attempts + 1)
 		else
-			copy=0;
-		fi;
+			copy=0
+		fi
 	done
 	if [ $attempts -eq 10 ]; then
-		echo "Staging out $local_file to $remote_dir/ failed after $attempts attempts! Please copy it yourself by running:" 1>&2;
-		echo "rsync -a $(hostname):$local_file $remote_dir/" 1>&2;
+		echo "Staging out $local_file to $remote_dir/ failed after $attempts attempts! Please copy it yourself by running:" 1>&2
+		echo "rsync -a $(hostname):$local_file $remote_dir/" 1>&2
 	else
-		rm -f $local_file;
+		rm -f $local_file
 	fi
 }
