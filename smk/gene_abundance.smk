@@ -96,6 +96,10 @@ valid_aligner_types = ['bwa', 'strobealign']
 ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
 check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
 
+valid_aligner_types = ['bwa', 'strobealign']
+ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
+check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
+
 ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
 local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
@@ -285,6 +289,7 @@ rule make_genome_def:
 #########################
 
 rule genome_mapping_bwa_profiling:
+rule genome_mapping_bwa_profiling:
     input:
         bwaindex   = lambda wildcards: get_fasta_index_path(rules.make_merged_genome_fna.output.fasta.format(**wildcards), "bwa"),
         genome_def = rules.make_genome_def.output.genome_def,
@@ -292,6 +297,12 @@ rule genome_mapping_bwa_profiling:
         rev        = get_rev_files_only,
         bed_mini   = "{wd}/DB/{minto_mode}/{minto_mode}-genes.bed.mini"
     output:
+        bwa_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.log",
+        raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
+        raw_prop_seq    = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.txt.gz",
+        raw_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.genome.txt.gz",
+        rel_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.relabund.prop.genome.txt.gz",
+        absolute_counts = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz"
         bwa_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.log",
         raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
         raw_prop_seq    = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.txt.gz",
@@ -310,7 +321,9 @@ rule genome_mapping_bwa_profiling:
         num_runs          = lambda wildcards, input: len(input.fwd)
     log:
         "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}.{mapper}.map_profile.log"
+        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}.{mapper}.map_profile.log"
     wildcard_constraints:
+        mapper   = r'bwa',
         mapper   = r'bwa',
         identity   = r'\d+',
         minto_mode = r'MAG|refgenome'
@@ -553,11 +566,15 @@ __EOM__
 #########################
 
 rule gene_catalog_mapping_bwa_profiling:
+rule gene_catalog_mapping_bwa_profiling:
     input:
         bwaindex = lambda wildcards: get_fasta_index_path(f"{gene_catalog_path}/{gene_catalog_name}", "bwa"),
         fwd      = get_fwd_files_only,
         rev      = get_rev_files_only,
     output:
+        bwa_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.log",
+        profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.TPM.txt.gz",
+        map_profile="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz"
         bwa_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.log",
         profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.TPM.txt.gz",
         map_profile="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz"
@@ -572,7 +589,9 @@ rule gene_catalog_mapping_bwa_profiling:
         num_runs          = lambda wildcards, input: len(input.fwd)
     log:
         "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}_{mapper}.log"
+        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}_{mapper}.log"
     wildcard_constraints:
+        mapper = r'bwa',
         mapper = r'bwa',
         minto_mode = r'catalog'
     threads:
@@ -748,10 +767,12 @@ def get_msamtools_profiles(wildcards):
         typespec = wildcards.type + '.genome'
 
     profiles = expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.{typespec}.txt.gz",
+    profiles = expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.{typespec}.txt.gz",
                             wd = wildcards.wd,
                             omics = wildcards.omics,
                             minto_mode = wildcards.minto_mode,
                             identity = wildcards.identity,
+                            mapper = ALIGNER_type,
                             mapper = ALIGNER_type,
                             typespec = typespec,
                             sample = ilmn_samples)
@@ -857,10 +878,12 @@ ___EOF___
 rule merge_gene_abund:
     input:
         single=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz",
+        single=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz",
                     wd = wildcards.wd,
                     omics = wildcards.omics,
                     minto_mode = wildcards.minto_mode,
                     identity = wildcards.identity,
+                    mapper = ALIGNER_type,
                     mapper = ALIGNER_type,
                     sample=ilmn_samples),
     params:
@@ -966,10 +989,12 @@ rule read_map_stats:
     localrule: True
     input:
         map_profile=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
+        map_profile=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
                                             wd = wildcards.wd,
                                             omics = wildcards.omics,
                                             minto_mode = wildcards.minto_mode,
                                             identity = wildcards.identity,
+                                            mapper = ALIGNER_type,
                                             mapper = ALIGNER_type,
                                             sample=ilmn_samples)
     output:
