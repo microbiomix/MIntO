@@ -485,7 +485,7 @@ rule genome_mapping_sba_profiling:
         if [ "{params.staging}" == "yes" ]; then
             source {minto_dir:q}/include/file_staging_functions.sh
             echo "Using local cache of index files" > {log}
-            stage_multiple_files_in {params.final_destination:q} {input.sbaindex[0]} {input.sbaindex[0]}.r${{r_arg}}.sti &>> {log}
+            stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
             db_name={local_cache_dir:q}/{input.sbaindex[0]}
         else
             echo "Using original index files" > {log}
@@ -687,7 +687,7 @@ rule gene_catalog_mapping_sba_profiling:
             # Set db_name accordingly
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir:q}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.sbaindex[0]} {input.sbaindex[0]}.r${{r_arg}}.sti
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
                 db_name={local_cache_dir:q}/{input.sbaindex[0]}
             else
                 db_name={input.sbaindex[0]}

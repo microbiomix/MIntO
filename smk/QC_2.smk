@@ -349,7 +349,7 @@ rule qc2_host_filter:
         ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
-        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0])),
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0]))
     conda:
         minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
     shell:
@@ -359,12 +359,7 @@ rule qc2_host_filter:
         # Set db_name accordingly
         if [ "{params.staging}" == "yes" ]; then
             source {minto_dir:q}/include/file_staging_functions.sh            
-            if [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
-                r_arg="$(cat {input.meanlen_txt})"
-                stage_multiple_files_in {params.final_destination:q} {input.hostindex[0]} {input.hostindex[0]}.r${{r_arg}}.sti;
-            else
-                stage_multiple_files_in {params.final_destination:q} {input.hostindex}
-            fi
+            stage_multiple_files_in {params.final_destination:q} {input.hostindex}
             db_name={local_cache_dir:q}/{input.hostindex[0]}
         else
             db_name={input.hostindex[0]}

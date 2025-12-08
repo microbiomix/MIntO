@@ -523,7 +523,7 @@ rule map_strobealign:
             # Stage index files locally if needed
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.fasta:q} {input.sbaindex[0]}.r${{r_arg}}.sti
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
                 db_name={local_cache_dir:q}/{input.sbaindex[0]}
             else
                 db_name={input.sbaindex[0]}
