@@ -308,24 +308,41 @@ rule qc2_length_filter:
 # Therefore, mark it as temp() only for metaT using rule inheritance with different wildcard_constraints.
 
 rule qc2_sba_mean_length:
-    localrule: True
     input:
-        "{wd}/{omics}/1-trimmed/samples_read_length.txt"
+        readlen_file="{wd}/{omics}/1-trimmed/samples_read_length.txt"
     output:
-        "{wd}/output/2-qc/{omics}.mean_length.txt"
+        meanlen_file="{wd}/output/2-qc/{omics}.mean_length.txt"
     params:
         read_length_cutoff=read_min_len
     resources:
         mem=2
     threads: 2
-    log:
-        "{wd}/logs/{omics}/sba_mean_len.log"
-    conda:
-        minto_dir + "/envs/r_pkgs.yml"
-    shell:
-        """
-        Rscript {script_dir}/sba_mean_length.R --input {input} --min_len {params.read_length_cutoff} --out_meanlen {output}
-        """
+    run:
+        import pandas as pd
+        df = pd.read_table(input.readlen_file, names = ['n_reads', 'len_reads', 'sample'], sep = '\s+')
+        # filter out reads below cutoff length
+        df = df[df.len_reads > params.read_length_cutoff]
+        mean_len = int(sum(df.n_reads * df.len_reads)/df.n_reads.sum())
+        # corresponding strobealign -r setting as per v0.16.1
+        sba_mean_len = 0
+        if (mean_len <=  70):
+            sba_mean_len = 50
+        elif (mean_len <=  90):
+            sba_mean_len = 75
+        elif (mean_len <=  110):
+            sba_mean_len = 100
+        elif (mean_len <=  135):
+            sba_mean_len = 125
+        elif (mean_len <=  175):
+            sba_mean_len = 150
+        elif (mean_len <=  375):
+            sba_mean_len = 250
+        elif (mean_len <=  500):
+            sba_mean_len = 400
+        else:
+            sba_mean_len = 500
+        with open(output.meanlen_file, "w") as fp:
+            print(sba_mean_len, file = fp)
 
 # main rule: metaG - output is not temporary
 rule qc2_host_filter:
