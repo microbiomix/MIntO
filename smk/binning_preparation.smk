@@ -489,7 +489,7 @@ rule map_strobealign:
         batch    = r'\d+',
         illumina = r'[^/]+'
     resources:
-        mem = lambda wildcards, input, attempt: int(50 + 17.7*get_file_size_gb(input.fasta) + 20*(attempt-1)),
+        mem = lambda wildcards, input, attempt: int(6 + 1.7*get_file_size_gb(input.sbaindex[0]) + 20*(attempt-1)),
     threads:
         ALIGNER_threads
     params:
@@ -523,13 +523,14 @@ rule map_strobealign:
             # Stage index files locally if needed
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta:q}
                 db_name={local_cache_dir:q}/{input.sbaindex[0]}
             else
                 db_name={input.sbaindex[0]}
             fi
 
-            # fixed mean read length
+            # Remove the index file extension to get db_name argument for fasta
+            db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
             strobealign -t {threads} -r $r_arg --use-index --aemb $db_name $input_files > abundances.tsv
             gzip -2 abundances.tsv
             rsync -a abundances.tsv.gz {output.depth:q}

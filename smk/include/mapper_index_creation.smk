@@ -10,40 +10,39 @@ include: 'resources.smk'
 
 # Ad hoc solution to get part of a output file sufix even if we don't have the file yet at the
 # start of QC_2. Other modules read it from "{working_dir}/output/2-qc/{omics}.mean_length.txt"
-sti_prefix = "r150"
-meanlen_file = f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
-readlen_file = f"{working_dir}/{omics}/1-trimmed/samples_read_length.txt"
-# after QC_2
-if os.path.exists(meanlen_file):
-    sba_mean_len = open(meanlen_file, 'r').readline().strip()
-    sti_prefix = f"r{sba_mean_len}"
-# in QC_2
-elif os.path.exists(readlen_file):
-    import pandas as pd
-    df = pd.read_table(readlen_file, names = ['n_reads', 'len_reads', 'sample'], sep = '\s+')
-    try:
-        df = df[df.len_reads > read_min_len]
-        mean_len = int(sum(df.n_reads * df.len_reads)/df.n_reads.sum())
-        sba_mean_len = 150
-        if (mean_len <=  70):
-            sba_mean_len = 50
-        elif (mean_len <=  90):
-            sba_mean_len = 75
-        elif (mean_len <=  110):
-            sba_mean_len = 100
-        elif (mean_len <=  135):
-            sba_mean_len = 125
-        elif (mean_len <=  175):
+def get_sba_mean_len():
+    meanlen_file = f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
+    readlen_file = f"{working_dir}/{omics}/1-trimmed/samples_read_length.txt"
+    # after QC_2
+    if os.path.exists(meanlen_file):
+        sba_mean_len = open(meanlen_file, 'r').readline().strip()
+    # in QC_2
+    elif os.path.exists(readlen_file):
+        import pandas as pd
+        df = pd.read_table(readlen_file, names = ['n_reads', 'len_reads', 'sample'], sep = '\s+')
+        try:
+            df = df[df.len_reads > read_min_len]
+            mean_len = int(sum(df.n_reads * df.len_reads)/df.n_reads.sum())
             sba_mean_len = 150
-        elif (mean_len <=  375):
-            sba_mean_len = 250
-        elif (mean_len <=  500):
-            sba_mean_len = 400
-        else:
-            sba_mean_len = 500
-        sti_prefix = f"r{sba_mean_len}"
-    except NameError as e:
-        raise Exception("Minimum length config not found")
+            if (mean_len <=  70):
+                sba_mean_len = 50
+            elif (mean_len <=  90):
+                sba_mean_len = 75
+            elif (mean_len <=  110):
+                sba_mean_len = 100
+            elif (mean_len <=  135):
+                sba_mean_len = 125
+            elif (mean_len <=  175):
+                sba_mean_len = 150
+            elif (mean_len <=  375):
+                sba_mean_len = 250
+            elif (mean_len <=  500):
+                sba_mean_len = 400
+            else:
+                sba_mean_len = 500
+        except NameError as e:
+            raise Exception("Minimum length config not found")
+    return(sba_mean_len)
 
 def get_fasta_index_path(fasta, mapper):
     # Get UC mapper name
@@ -54,14 +53,15 @@ def get_fasta_index_path(fasta, mapper):
 
     # Enumerate the index files
     if my_mapper == "BWA":
-        ext_list = ['.0123', '.amb', '.ann', '.bwt.2bit.64', '.pac']
+        ext_list = ['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac']
     elif my_mapper == "STROBEALIGN":
-        ext_list = ['', f".{sti_prefix}.sti"]
+        read_len = get_sba_mean_len()
+        ext_list = [f"r{read_len}.sti"]
     else:
         raise Exception(f"MIntO error: Unexpected value: MAPPER='{my_mapper}'. Must be one of {BWA, STROBEALIGN}")
 
     # Return a list of the index files
-    index_files = expand("{location}/{mapname}_index/{filename}{ext}",
+    index_files = expand("{location}/{mapname}_index/{filename}.{ext}",
                          location = basedir,
                          mapname  = my_mapper,
                          filename = filename,
@@ -122,13 +122,13 @@ rule STROBEALIGN_index:
         fasta="{somewhere}/{something}.{fasta}",
         meanlen_txt=f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
     output:
-        fasta="{somewhere}/STROBEALIGN_index/{something}.{fasta}",
-        sti=f"{{somewhere}}/STROBEALIGN_index/{{something}}.{{fasta}}.{sti_prefix}.sti"
+        sti="{somewhere}/STROBEALIGN_index/{something}.{fasta}.r{meanlen}.sti"
     log:
-        "{somewhere}/STROBEALIGN_index/sba_index.{something}.{fasta}.log"
+        "{somewhere}/STROBEALIGN_index/sba_index.{something}.{fasta}.{meanlen}.log"
     wildcard_constraints:
         fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
-        something = r'[^/]+'
+        something = r'[^/]+',
+        meanlen   = r'\d+'
     resources:
         mem = lambda wildcards, input, attempt: 5 + int((13 if input.fasta.endswith('.gz') else 4)*get_file_size_gb(input.fasta)) + 40*(attempt-1),
     threads: 8
@@ -137,11 +137,11 @@ rule STROBEALIGN_index:
     shell:
         """
         time (
-            r_arg="$(cat {input.meanlen_txt})"
+            output_fasta=$(echo "{output.sti}" | sed -e "s|.r{wildcards.meanlen}.sti||")
             # strobealign does realpath on input file and places sti there.
             # so hardlink source fasta file into the same directory as index, 
             # since softlink will resolve to original location.
-            ln --force {input.fasta} {output.fasta}
-            strobealign --create-index -t {threads} {output.fasta} -r $r_arg
+            ln --force {input.fasta} $output_fasta
+            strobealign --create-index -t {threads} $output_fasta -r {wildcards.meanlen}
         ) >& {log}
         """

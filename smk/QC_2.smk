@@ -347,6 +347,7 @@ rule qc2_sba_mean_length:
 # main rule: metaG - output is not temporary
 rule qc2_host_filter:
     input:
+        fasta      = f"{host_genome_path}/{host_genome_name}",
         pairead_fw = rules.qc2_length_filter.output.paired1,
         pairead_rv = rules.qc2_length_filter.output.paired2,
         hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type),
@@ -375,8 +376,8 @@ rule qc2_host_filter:
         # Stage index files locally if needed
         # Set db_name accordingly
         if [ "{params.staging}" == "yes" ]; then
-            source {minto_dir:q}/include/file_staging_functions.sh            
-            stage_multiple_files_in {params.final_destination:q} {input.hostindex}
+            source {minto_dir:q}/include/file_staging_functions.sh
+            stage_multiple_files_in {params.final_destination:q} {input.hostindex} {input.fasta}
             db_name={local_cache_dir:q}/{input.hostindex[0]}
         else
             db_name={input.hostindex[0]}
@@ -392,6 +393,7 @@ rule qc2_host_filter:
             ) >& {log}
         elif [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
             r_arg="$(cat {input.meanlen_txt})"
+            db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
             time (strobealign --use-index -r $r_arg -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
                 | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
                 | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -

@@ -420,6 +420,7 @@ __EOM__
 
 rule genome_mapping_sba_profiling:
     input:
+        fasta      = lambda wildcards: rules.make_merged_genome_fna.output.fasta.format(**wildcards),
         sbaindex   = lambda wildcards: get_fasta_index_path(rules.make_merged_genome_fna.output.fasta.format(**wildcards), "strobealign"),
         genome_def = rules.make_genome_def.output.genome_def,
         fwd        = get_fwd_files_only,
@@ -485,7 +486,7 @@ rule genome_mapping_sba_profiling:
         if [ "{params.staging}" == "yes" ]; then
             source {minto_dir:q}/include/file_staging_functions.sh
             echo "Using local cache of index files" > {log}
-            stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
+            stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta}
             db_name={local_cache_dir:q}/{input.sbaindex[0]}
         else
             echo "Using original index files" > {log}
@@ -504,6 +505,8 @@ rule genome_mapping_sba_profiling:
         # Do the mapping and profiling
         ###########################
 
+        # Remove the index file extension to get db_name argument
+        db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
         (time (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
                     msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
             total_reads="$(grep {wildcards.sample} {input.frag_count} | cut -f 3)"
@@ -636,6 +639,7 @@ __EOM__
 
 rule gene_catalog_mapping_sba_profiling:
     input:
+        fasta    = f"{gene_catalog_path}/{gene_catalog_name}",
         sbaindex = lambda wildcards: get_fasta_index_path(f"{gene_catalog_path}/{gene_catalog_name}", "strobealign"),
         fwd      = get_fwd_files_only,
         rev      = get_rev_files_only,
@@ -687,12 +691,14 @@ rule gene_catalog_mapping_sba_profiling:
             # Set db_name accordingly
             if [ "{params.staging}" == "yes" ]; then
                 source {minto_dir:q}/include/file_staging_functions.sh
-                stage_multiple_files_in {params.final_destination:q} {input.sbaindex}
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta}
                 db_name={local_cache_dir:q}/{input.sbaindex[0]}
             else
                 db_name={input.sbaindex[0]}
             fi
-
+            
+            # Remove the index file extension to get db_name argument
+            db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
             # Do the mapping
             (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
                 msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
