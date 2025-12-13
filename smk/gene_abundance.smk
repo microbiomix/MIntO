@@ -509,7 +509,7 @@ rule genome_mapping_sba_profiling:
         db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
         (time (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
                     msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
-            total_reads="$(grep {wildcards.sample} {input.frag_count} | cut -f 3)"
+            total_reads="$(grep "^{wildcards.sample}$(printf '\\t')" {input.frag_count} | cut -f 3)"
             #echo $total_reads
 
             # Run multiple msamtools modes + samtools sort in parallel using GNU parallel.
@@ -702,7 +702,7 @@ rule gene_catalog_mapping_sba_profiling:
             # Do the mapping
             (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
                 msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
-            total_reads="$(grep {wildcards.sample} {input.frag_count} | cut -f 3)"
+            total_reads="$(grep "^{wildcards.sample}$(printf '\\t')" {input.frag_count} | cut -f 3)"
             #echo $total_reads
 
             # Run multiple msamtools modes in parallel using GNU parallel.
