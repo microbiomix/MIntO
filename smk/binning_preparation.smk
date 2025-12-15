@@ -349,13 +349,18 @@ rule write_assembly_batch_fasta:
 # Details of which files are generated - in 'include/mapper_index_creation.smk'
 ################################################################################################
 
-def get_assembly_batch_index_files(wildcards):
+def get_assembly_batch_fasta(wildcards):
     fasta = "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batch{batch}.fasta.gz".format(
             wd         = wildcards.wd,
             omics      = wildcards.omics,
             scaf_type  = wildcards.scaf_type,
             min_length = wildcards.min_length,
-            batch      = wildcards.batch)
+            batch      = wildcards.batch
+    )
+    return(fasta)
+
+def get_assembly_batch_index_files(wildcards):
+    fasta = get_assembly_batch_fasta(wildcards)
     return(get_fasta_index_path(fasta, wildcards.mapper))
 
 ###############################################################################################
@@ -472,7 +477,7 @@ rule map_BWA_depth_coverM:
 
 rule map_strobealign:
     input:
-        fasta=rules.write_assembly_batch_fasta.output.fasta,
+        fasta=get_assembly_batch_fasta,
         sbaindex=get_assembly_batch_index_files,
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
