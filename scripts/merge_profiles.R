@@ -6,6 +6,7 @@ parser = add_option(parser, c("-t", "--threads"), type="integer", default=4, hel
 parser = add_option(parser, c("-m", "--memory"), type="integer", default=10, help="maximum memory to be used")
 parser = add_option(parser, c("-o", "--out"), type="character", default=NULL, help="output file")
 parser = add_option(parser, c("-i", "--input"), type="character", default=NULL, help="files to be combined; as one comma-delimited string")
+parser = add_option(parser, c("-f", "--filelist"), type="character", default=NULL, help="files to be combined in a list, one per line")
 parser = add_option(parser, c("-k", "--keys"), type="character", default=NULL, help="columns shared across files and must be used for join; as one comma-delimited string")
 parser = add_option(parser, c("-z", "--zeroes"), action="store_true", default=FALSE, help="flag whether there are zeroes in the profile output that should be removed")
 
@@ -17,9 +18,9 @@ if (is.null(opt$out)) {
     print_help(parser)
     stop("Missing required option '--out'")
 }
-if (is.null(opt$input)) {
+if (is.null(opt$input) & is.null(opt$filelist) ) {
     print_help(parser)
-    stop("Missing required option '--input'")
+    stop("Missing required option '--input' or '--filelist'")
 }
 if (is.null(opt$keys)) {
     print_help(parser)
@@ -31,9 +32,14 @@ if (is.null(opt$keys)) {
 threads_n = opt$threads
 memory_lim = opt$memory
 out_file = opt$out
-in_files = as.list(strsplit(opt$input, ",", fixed=TRUE))[[1]]
 keys = as.vector(strsplit(opt$keys, ",", fixed=TRUE))[[1]]
 zeroes = opt$zeroes
+
+if (! is.null(opt$input)){
+    in_files = as.list(strsplit(opt$input, ",", fixed=TRUE))[[1]]
+} else {
+    in_files = read.delim(opt$filelist, header = F)$V1
+}
 
 # Check input files
 
