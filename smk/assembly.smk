@@ -298,9 +298,9 @@ rule illumina_assembly_metaspades:
         rev="{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz",
     output:
         cont_fa    = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/contigs.fasta",
-        cont_pth    = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/contigs.paths",
+        cont_pth   = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/contigs.paths",
         scaf_fa    = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/scaffolds.fasta",
-        scaf_pth    = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/scaffolds.paths",
+        scaf_pth   = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/scaffolds.paths",
         scaf_gfa   = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/assembly_graph_with_scaffolds.gfa.gz",
         asm_log    = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/spades.log",
         asm_params = "{wd}/{omics}/7-assembly/{illumina}/k21-{maxk}/params.txt",
@@ -348,9 +348,9 @@ rule hybrid_assembly_metaspades:
         ont="{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz"
     output:
         cont_fa    = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/contigs.fasta",
-        cont_pth    = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/contigs.paths",
+        cont_pth   = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/contigs.paths",
         scaf_fa    = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/scaffolds.fasta",
-        scaf_pth    = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/scaffolds.paths",
+        scaf_pth   = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/scaffolds.paths",
         scaf_gfa   = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/assembly_graph_with_scaffolds.gfa.gz",
         asm_log    = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/spades.log",
         asm_params = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/params.txt",
