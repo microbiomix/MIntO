@@ -772,7 +772,7 @@ rule merge_msamtools_jobs_input:
     input:
         single=get_msamtools_profiles
     output:
-        filelist="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{mapper}.filtered.profile.{type}.list"
+        filelist=temp("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{mapper}.filtered.profile.{type}.list")
     resources:
         mem=2
     threads: 1
@@ -793,7 +793,7 @@ rule merge_msamtools_profiles:
                             mapper = ALIGNER_type,
                             type = wildcards.type)
     output:
-        combined=temp("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{type}.tsv")
+        combined="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{type}.tsv"
     shadow:
         "minimal"
     log:
@@ -809,8 +809,7 @@ rule merge_msamtools_profiles:
     shell:
         """
         time (
-            shadowdir=$(pwd)
-            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --filelist {input.filelist} --out $shadowdir/out.txt --keys ID --zeroes
+            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --filelist {input.filelist} --out out.txt --keys ID --zeroes
             rsync -a out.txt {output.combined}
         ) >& {log}
         """
@@ -884,7 +883,7 @@ use rule merge_msamtools_jobs_input as merge_bed_jobs_input with:
                     omics = wildcards.omics,
                     minto_mode = wildcards.minto_mode,
                     identity = wildcards.identity,
-                    mapper = ALIGNER_type,
+                    mapper = wildcards.mapper,
                     sample=ilmn_samples)
     output:
         filelist=temp("{wd}/{omics}/9-mapping-profiles/{minto_mode}/merge.gene_abundances.p{identity}.{mapper}.bed.list")
@@ -918,8 +917,7 @@ rule merge_gene_abund:
     shell:
         """
         time (
-            shadowdir=$(pwd)
-            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --filelist {input.filelist} --out $shadowdir/out.txt --keys gene_length,ID
+            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --filelist {input.filelist} --out out.txt --keys gene_length,ID
             rsync -a out.txt {output.combined}
         ) >& {log}
         """
