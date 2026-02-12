@@ -325,9 +325,9 @@ rule illumina_assembly_metaspades:
             rsync -a {input.rev} {wildcards.illumina}.2.fq.gz
             {spades_script} {params.asm_mode} --only-assembler -1 {wildcards.illumina}.1.fq.gz -2 {wildcards.illumina}.2.fq.gz -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
             rsync -a outdir/contigs.fasta {output.cont_fa}
-            rsync -a outdir/contigs.fasta {output.cont_pth}
+            rsync -a outdir/contigs.paths {output.cont_pth}
             rsync -a outdir/scaffolds.fasta {output.scaf_fa}
-            rsync -a outdir/scaffolds.fasta {output.scaf_pth}
+            rsync -a outdir/scaffolds.paths {output.scaf_pth}
             rsync -a outdir/spades.log {output.asm_log}
             rsync -a outdir/params.txt {output.asm_params}
             gzip -c outdir/assembly_graph_with_scaffolds.gfa > {output.scaf_gfa}
@@ -373,9 +373,9 @@ rule hybrid_assembly_metaspades:
         time (
             {spades_script} {params.asm_mode} --only-assembler -1 {input.fwd} -2 {input.rev} --nanopore {input.ont} -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
             rsync -a outdir/contigs.fasta {output.cont_fa}
-            rsync -a outdir/contigs.fasta {output.cont_pth}
+            rsync -a outdir/contigs.paths {output.cont_pth}
             rsync -a outdir/scaffolds.fasta {output.scaf_fa}
-            rsync -a outdir/scaffolds.fasta {output.scaf_pth}
+            rsync -a outdir/scaffolds.paths {output.scaf_pth}
             rsync -a outdir/spades.log {output.asm_log}
             rsync -a outdir/params.txt {output.asm_params}
             gzip -c outdir/assembly_graph_with_scaffolds.gfa > {output.scaf_gfa}
