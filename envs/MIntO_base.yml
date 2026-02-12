@@ -20,6 +20,6 @@ dependencies:
   - sortmerna=4.3.7
   - sourmash=4.8
   - spades=4.2.0
-  - strobealign=0.16.1
+  - strobealign=0.17.0
   - trimmomatic=0.39
 prefix: MIntO_base
