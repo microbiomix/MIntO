@@ -307,6 +307,8 @@ rule qc2_length_filter:
 # For metaT, it is not.
 # Therefore, mark it as temp() only for metaT using rule inheritance with different wildcard_constraints.
 
+# Function get_sba_mean_len() defined in mapper_index_creation.smk
+
 rule qc2_sba_mean_length:
     input:
         readlen_file="{wd}/{omics}/1-trimmed/samples_read_length.txt"
@@ -318,29 +320,7 @@ rule qc2_sba_mean_length:
         mem=2
     threads: 2
     run:
-        import pandas as pd
-        df = pd.read_table(input.readlen_file, names = ['n_reads', 'len_reads', 'sample'], sep = '\s+')
-        # filter out reads below cutoff length
-        df = df[df.len_reads > params.read_length_cutoff]
-        mean_len = int(sum(df.n_reads * df.len_reads)/df.n_reads.sum())
-        # corresponding strobealign -r setting as per v0.16.1
-        sba_mean_len = 0
-        if (mean_len <=  70):
-            sba_mean_len = 50
-        elif (mean_len <=  90):
-            sba_mean_len = 75
-        elif (mean_len <=  110):
-            sba_mean_len = 100
-        elif (mean_len <=  135):
-            sba_mean_len = 125
-        elif (mean_len <=  175):
-            sba_mean_len = 150
-        elif (mean_len <=  375):
-            sba_mean_len = 250
-        elif (mean_len <=  500):
-            sba_mean_len = 400
-        else:
-            sba_mean_len = 500
+        sba_mean_len = get_sba_mean_len(input.readlen_file)
         with open(output.meanlen_file, "w") as fp:
             print(sba_mean_len, file = fp)
 
