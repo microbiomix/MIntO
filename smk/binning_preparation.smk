@@ -349,13 +349,18 @@ rule write_assembly_batch_fasta:
 # Details of which files are generated - in 'include/mapper_index_creation.smk'
 ################################################################################################
 
-def get_assembly_batch_index_files(wildcards):
+def get_assembly_batch_fasta(wildcards):
     fasta = "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batch{batch}.fasta.gz".format(
             wd         = wildcards.wd,
             omics      = wildcards.omics,
             scaf_type  = wildcards.scaf_type,
             min_length = wildcards.min_length,
-            batch      = wildcards.batch)
+            batch      = wildcards.batch
+    )
+    return(fasta)
+
+def get_assembly_batch_index_files(wildcards):
+    fasta = get_assembly_batch_fasta(wildcards)
     return(get_fasta_index_path(fasta, wildcards.mapper))
 
 ###############################################################################################
@@ -472,11 +477,12 @@ rule map_BWA_depth_coverM:
 
 rule map_strobealign:
     input:
-        fasta=rules.write_assembly_batch_fasta.output.fasta,
+        fasta=get_assembly_batch_fasta,
         sbaindex=get_assembly_batch_index_files,
         fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
         rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
-        maxfrag=rules.set_max_mapcount.output
+        maxfrag=rules.set_max_mapcount.output,
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
     output:
         depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
     shadow:
@@ -488,20 +494,20 @@ rule map_strobealign:
         batch    = r'\d+',
         illumina = r'[^/]+'
     resources:
-        mem = lambda wildcards, input, attempt: int(50 + 17.7*get_file_size_gb(input.fasta) + 20*(attempt-1)),
+        mem = lambda wildcards, input, attempt: int(6 + 1.7*get_file_size_gb(input.sbaindex[0]) + 20*(attempt-1)),
     threads:
         ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
     conda:
-        minto_dir + "/envs/strobealign.yml"
+        minto_dir + "/envs/MIntO_base.yml"
     shell:
         """
         mkdir -p $(dirname {output})
 
         max_mapped_fragcount=$(grep "^{wildcards.illumina}$(printf '\\t')" {input.maxfrag} | cut -f 2 )
-        
+
         # Make named pipes if needed
         if [[ $max_mapped_fragcount != "None" ]]; then
             mkfifo {wildcards.illumina}.1.fq
@@ -515,6 +521,9 @@ rule map_strobealign:
             input_files="{input.fwd} {input.rev}"
         fi
 
+        # Get mean length parameter for sba
+        r_arg="$(cat {input.meanlen_txt})"
+            
         time (
             # Stage index files locally if needed
             if [ "{params.staging}" == "yes" ]; then
@@ -525,11 +534,9 @@ rule map_strobealign:
                 db_name={input.sbaindex[0]}
             fi
 
-            # Remove the index file extension to get db_name argument to bwa
-            db_name=${{db_name%.r150.sti}}
-
-            # fixed mean read length
-            strobealign -t {threads} -r 150 --use-index --aemb $db_name $input_files > abundances.tsv
+            # Remove the index file extension to get db_name argument for fasta
+            db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
+            strobealign -t {threads} -r $r_arg --use-index --aemb $db_name $input_files > abundances.tsv
             gzip -2 abundances.tsv
             rsync -a abundances.tsv.gz {output.depth:q}
         ) >& {log}

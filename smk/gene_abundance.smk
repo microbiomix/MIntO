@@ -92,6 +92,10 @@ else:
                 if os.path.exists(gene_catalog_path + '/' + gene_catalog_name):
                     print(f"NOTE: MIntO is using {gene_catalog_path}/{gene_catalog_name} as gene database.")
 
+valid_aligner_types = ['bwa', 'strobealign']
+ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
+check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
+
 ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
 local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
@@ -280,7 +284,7 @@ rule make_genome_def:
 #   That's where the 0.9 in 'sort_memory=$((9*{resources.mem}/{resources.sort_threads}/10))' comes from.
 #########################
 
-rule genome_mapping_profiling:
+rule genome_mapping_bwa_profiling:
     input:
         bwaindex   = lambda wildcards: get_fasta_index_path(rules.make_merged_genome_fna.output.fasta.format(**wildcards), "bwa"),
         genome_def = rules.make_genome_def.output.genome_def,
@@ -288,12 +292,12 @@ rule genome_mapping_profiling:
         rev        = get_rev_files_only,
         bed_mini   = "{wd}/DB/{minto_mode}/{minto_mode}-genes.bed.mini"
     output:
-        bwa_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.bwa.log",
-        raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.all.txt.gz",
-        raw_prop_seq    = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.prop.txt.gz",
-        raw_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.prop.genome.txt.gz",
-        rel_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.relabund.prop.genome.txt.gz",
-        absolute_counts = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.bed.gz"
+        bwa_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.log",
+        raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
+        raw_prop_seq    = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.txt.gz",
+        raw_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.genome.txt.gz",
+        rel_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.relabund.prop.genome.txt.gz",
+        absolute_counts = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz"
     shadow:
         "minimal"
     params:
@@ -305,8 +309,9 @@ rule genome_mapping_profiling:
         sample_alias      = lambda wildcards: sample2alias[wildcards.sample],
         num_runs          = lambda wildcards, input: len(input.fwd)
     log:
-        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}.map_profile.log"
+        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}.{mapper}.map_profile.log"
     wildcard_constraints:
+        mapper   = r'bwa',
         identity   = r'\d+',
         minto_mode = r'MAG|refgenome'
     threads:
@@ -402,6 +407,143 @@ __EOM__
         ) &>> {log}
         """
 
+
+#########################
+# Map reads using strobealign, profile using msamtools, sort bam file, and create gene-level BED file.
+# Mapping and computation of read counts using samtools bedcov are done in the same rule.
+# Mapping and sorting are in separate processes, so they don't need to share memory.
+# Memory estimates:
+# 1. strobealign
+#   RAM is estimated as 17.7 bytes per compressed byte with 50GB offset
+# 2. Rest is same as for BWA option
+#########################
+
+rule genome_mapping_sba_profiling:
+    input:
+        fasta      = lambda wildcards: rules.make_merged_genome_fna.output.fasta.format(**wildcards),
+        sbaindex   = lambda wildcards: get_fasta_index_path(rules.make_merged_genome_fna.output.fasta.format(**wildcards), "strobealign"),
+        genome_def = rules.make_genome_def.output.genome_def,
+        fwd        = get_fwd_files_only,
+        rev        = get_rev_files_only,
+        bed_mini   = "{wd}/DB/{minto_mode}/{minto_mode}-genes.bed.mini",
+        frag_count = "{wd}/output/2-qc/{omics}.readcounts.txt",
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
+    output:
+        sba_log         = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.log",
+        raw_all_seq     = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
+        raw_prop_seq    = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.txt.gz",
+        raw_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.prop.genome.txt.gz",
+        rel_prop_genome = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.relabund.prop.genome.txt.gz",
+        absolute_counts = "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz"
+    shadow:
+        "minimal"
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
+        length            = msamtools_filter_length,
+        mapped_reads_threshold = MIN_mapped_reads,
+        bedcov_lines      = 500000,
+        sample_alias      = lambda wildcards: sample2alias[wildcards.sample],
+        num_runs          = lambda wildcards, input: len(input.fwd)
+    log:
+        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}.{mapper}.map_profile.log"
+    wildcard_constraints:
+        mapper   = r'strobealign',
+        identity   = r'\d+',
+        minto_mode = r'MAG|refgenome'
+    threads:
+        ALIGNER_threads
+    resources:
+        sort_threads = 3,
+        bedcov_threads = lambda wildcards, threads: min(10, threads),
+        mem = lambda wildcards, input, attempt: max(3*5, math.ceil(5.6 + 1.7e-9*get_file_size(input.sbaindex[0]))) + 10*(attempt-1)
+    conda:
+        minto_dir + "/envs/MIntO_base.yml" # sba + samtools + msamtools + perl + parallel
+    shell:
+        """
+        ###########################
+        # Cat runs if needed
+        ###########################
+
+        if (( {params.num_runs} > 1 )); then
+            cat {input.fwd} > {wildcards.sample}.1.fq.gz
+            cat {input.rev} > {wildcards.sample}.2.fq.gz
+            input_files="{wildcards.sample}.1.fq.gz {wildcards.sample}.2.fq.gz"
+        else
+            input_files="{input.fwd} {input.rev}"
+        fi
+
+        ###########################
+        # Figure out index db
+        ###########################
+
+        # Get mean length parameter for sba
+        r_arg="$(cat {input.meanlen_txt})"
+
+        # Stage index files locally if needed
+        # Set db_name accordingly
+
+        if [ "{params.staging}" == "yes" ]; then
+            source {minto_dir:q}/include/file_staging_functions.sh
+            echo "Using local cache of index files" > {log}
+            stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta}
+            db_name={local_cache_dir:q}/{input.sbaindex[0]}
+        else
+            echo "Using original index files" > {log}
+            db_name={input.sbaindex[0]}
+        fi
+
+        ###########################
+        # Estimate samtools sort memory
+        ###########################
+
+        sort_memory=$((9*{resources.mem}/{resources.sort_threads}/10))
+        echo "Using {resources.sort_threads} threads and $sort_memory GB memory per thread for 'samtools sort'"
+        echo "Using {resources.bedcov_threads} threads and {params.bedcov_lines} lines per batch-file for 'samtools bedcov'"
+
+        ###########################
+        # Do the mapping and profiling
+        ###########################
+
+        # Remove the index file extension to get db_name argument
+        db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
+        (time (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
+                    msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
+            total_reads="$(grep "^{wildcards.sample}$(printf '\\t')" {input.frag_count} | cut -f 3)"
+            #echo $total_reads
+
+            # Run multiple msamtools modes + samtools sort in parallel using GNU parallel.
+            # We need 4 threads for msamtools and {resources.sort_threads} threads for samtools sort.
+            # We cap it by 'threads' limit to parallel.
+            common_args="--label {wildcards.omics}.{params.sample_alias} --total=$total_reads --mincount={params.mapped_reads_threshold} --pandas"
+            parallel --jobs {threads} <<__EOM__
+msamtools profile aligned.bam $common_args -o {output.raw_all_seq}     --multi=all  --unit=abund --nolen
+msamtools profile aligned.bam $common_args -o {output.raw_prop_seq}    --multi=prop --unit=abund --nolen
+msamtools profile aligned.bam $common_args -o {output.raw_prop_genome} --multi=prop --unit=abund --nolen --genome {input.genome_def}
+msamtools profile aligned.bam $common_args -o {output.rel_prop_genome} --multi=prop --unit=rel           --genome {input.genome_def}
+samtools sort aligned.bam -o sorted.bam -@ {resources.sort_threads} -m ${{sort_memory}}G --output-fmt=BAM
+__EOM__
+
+            # Use samtools bedcov to generate read-counts per gene
+            # 1. Index sorted.bam file
+            # 2. Enable parallelization by splitting the BED file into smaller files and then giving it to samtools bedcov
+            #    a. Create smaller bed files with {params.bedcov_lines} lines each, like x0000000.bedsub, x0000001.bedsub, ...
+            #    b. Send 'ls' output to GNU parallel to process these smaller BED files.
+
+            parallel --jobs {threads} <<__EOM__
+samtools index sorted.bam sorted.bam.bai -@ {threads}
+split -d --suffix-length=7 --additional-suffix=.bedsub --lines={params.bedcov_lines} {input.bed_mini}
+__EOM__
+
+            # Pipe it to parallel
+            time (ls | grep -E '\.bedsub$' | parallel --jobs {resources.bedcov_threads} --plus "samtools bedcov -c -g SECONDARY {{}} sorted.bam | cut -f4,5,7 | (grep -v $'\\t0$' || true) > {{.}}.bed.part")
+            (echo -e 'gene_length\\tID\\t{wildcards.omics}.{params.sample_alias}'; cat *.bed.part) | gzip -c > out.bed.gz
+
+            # Rsync output bed file
+            rsync -a out.bed.gz {output.absolute_counts}
+        ) &>> {log}
+        """
+
 ###############################################################################################
 # MIntO mode: catalog
 ###############################################################################################
@@ -413,15 +555,15 @@ __EOM__
 # BWA mem memory is estimated as 3.1 bytes per base in database with 5.6GB offset (regression: mem = 5.556e+09 + 3.011*input).
 #########################
 
-rule gene_catalog_mapping_profiling:
+rule gene_catalog_mapping_bwa_profiling:
     input:
         bwaindex = lambda wildcards: get_fasta_index_path(f"{gene_catalog_path}/{gene_catalog_name}", "bwa"),
         fwd      = get_fwd_files_only,
         rev      = get_rev_files_only,
     output:
-        bwa_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.log",
-        profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.TPM.txt.gz",
-        map_profile="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.all.txt.gz"
+        bwa_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.log",
+        profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.TPM.txt.gz",
+        map_profile="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz"
     shadow:
         "minimal"
     params:
@@ -432,8 +574,9 @@ rule gene_catalog_mapping_profiling:
         mapped_reads_threshold = MIN_mapped_reads,
         num_runs          = lambda wildcards, input: len(input.fwd)
     log:
-        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}_bwa.log"
+        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}_{mapper}.log"
     wildcard_constraints:
+        mapper = r'bwa',
         minto_mode = r'catalog'
     threads:
         ALIGNER_threads
@@ -494,6 +637,90 @@ __EOM__
         ) >& {log}
         """
 
+rule gene_catalog_mapping_sba_profiling:
+    input:
+        fasta    = f"{gene_catalog_path}/{gene_catalog_name}",
+        sbaindex = lambda wildcards: get_fasta_index_path(f"{gene_catalog_path}/{gene_catalog_name}", "strobealign"),
+        fwd      = get_fwd_files_only,
+        rev      = get_rev_files_only,
+        frag_count = "{wd}/output/2-qc/{omics}.readcounts.txt",
+        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
+    output:
+        sba_log=    "{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.log",
+        profile_tpm="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.TPM.txt.gz",
+        map_profile="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz"
+    shadow:
+        "minimal"
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
+        sample_alias      = lambda wildcards: sample2alias[wildcards.sample],
+        length            = msamtools_filter_length,
+        mapped_reads_threshold = MIN_mapped_reads,
+        num_runs          = lambda wildcards, input: len(input.fwd)
+    log:
+        "{wd}/logs/{omics}/9-mapping-profiles/{minto_mode}/{sample}.p{identity}_{mapper}.log"
+    wildcard_constraints:
+        mapper = r'strobealign',
+        minto_mode = r'catalog'
+    threads:
+        ALIGNER_threads
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
+    resources:
+        mem = lambda wildcards, input, attempt: math.ceil(5.6 + 1.7*get_file_size_gb(input.sbaindex[0])) + 10*(attempt-1)
+    conda:
+        minto_dir + "/envs/MIntO_base.yml" #BWA + samtools
+    shell:
+        """
+        # Cat runs as compressed pipes don't work
+        if (( {params.num_runs} > 1 )); then
+            cat {input.fwd} > {wildcards.sample}.1.fq.gz
+            cat {input.rev} > {wildcards.sample}.2.fq.gz
+            input_files="{wildcards.sample}.1.fq.gz {wildcards.sample}.2.fq.gz"
+        else
+            input_files="{input.fwd} {input.rev}"
+        fi
+
+        # Get mean length parameter for sba
+        r_arg="$(cat {input.meanlen_txt})"
+
+        time (
+            # Stage index files locally if needed
+            # Set db_name accordingly
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir:q}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.sbaindex} {input.fasta}
+                db_name={local_cache_dir:q}/{input.sbaindex[0]}
+            else
+                db_name={input.sbaindex[0]}
+            fi
+            
+            # Remove the index file extension to get db_name argument
+            db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
+            # Do the mapping
+            (strobealign --use-index -r $r_arg -t {threads} $db_name $input_files | \
+                msamtools filter -S -b -l {params.length} -p {wildcards.identity} -z 80 --besthit - > aligned.bam) >& {output.sba_log}
+            total_reads="$(grep "^{wildcards.sample}$(printf '\\t')" {input.frag_count} | cut -f 3)"
+            #echo $total_reads
+
+            # Run multiple msamtools modes in parallel using GNU parallel.
+            # We cap it by 'threads' limit to parallel.
+            common_args="--label {wildcards.omics}.{params.sample_alias} --total=$total_reads --mincount={params.mapped_reads_threshold} --pandas"
+            parallel --jobs {threads} <<__EOM__
+msamtools profile aligned.bam $common_args -o profile.TPM.txt.gz --multi prop --unit tpm
+msamtools profile aligned.bam $common_args -o profile.abund.all.txt.gz --multi all --unit abund --nolen
+__EOM__
+
+            # rsync outputs to output dir
+            parallel --jobs {threads} <<__EOM__
+rsync -a profile.TPM.txt.gz {output.profile_tpm}
+rsync -a profile.abund.all.txt.gz {output.map_profile}
+__EOM__
+        ) >& {log}
+        """
+
 ###############################################################################################
 # Merge gene or genome profiles
 ###############################################################################################
@@ -526,11 +753,12 @@ def get_msamtools_profiles(wildcards):
     if (wildcards.filename == 'genome_abundances'):
         typespec = wildcards.type + '.genome'
 
-    profiles = expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.{typespec}.txt.gz",
+    profiles = expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.{typespec}.txt.gz",
                             wd = wildcards.wd,
                             omics = wildcards.omics,
                             minto_mode = wildcards.minto_mode,
                             identity = wildcards.identity,
+                            mapper = ALIGNER_type,
                             typespec = typespec,
                             sample = ilmn_samples)
     return(profiles)
@@ -539,14 +767,33 @@ def get_msamtools_profiles(wildcards):
 # Input generated by the function above, which ensures compatibility.
 # We set '--zeroes' because msamtools output leaves zero entries in individual profile files.
 
-rule merge_msamtools_profiles:
+rule merge_msamtools_jobs_input:
+    localrule: True
     input:
         single=get_msamtools_profiles
     output:
+        filelist=temp("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{mapper}.filtered.profile.{type}.list")
+    resources:
+        mem=2
+    threads: 1
+    run:
+        with open(output.filelist, "w") as fp:
+            for filepath in input.single:
+                print(filepath, file = fp)
+
+rule merge_msamtools_profiles:
+    input:
+        single=get_msamtools_profiles,
+        filelist=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{mapper}.filtered.profile.{type}.list",
+                            wd = wildcards.wd,
+                            omics = wildcards.omics,
+                            minto_mode = wildcards.minto_mode,
+                            filename = wildcards.filename,
+                            identity = wildcards.identity,
+                            mapper = ALIGNER_type,
+                            type = wildcards.type)
+    output:
         combined="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{type}.tsv"
-    params:
-        topdir = lambda wildcards, input: os.path.commonpath(input.single),
-        files  = lambda wildcards, input: ','.join(strip_topdir(input.single, os.path.commonpath(input.single)))
     shadow:
         "minimal"
     log:
@@ -562,10 +809,7 @@ rule merge_msamtools_profiles:
     shell:
         """
         time (
-            shadowdir=$(pwd)
-            cd {params.topdir}
-            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --input {params.files} --out $shadowdir/out.txt --keys ID --zeroes
-            cd $shadowdir
+            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --filelist {input.filelist} --out out.txt --keys ID --zeroes
             rsync -a out.txt {output.combined}
         ) >& {log}
         """
@@ -632,17 +876,33 @@ ___EOF___
 # We don't set '--zeroes' because rule 'genome_mapping_profiling' removed all zero entries in individual BED files.
 # Memory is estimated based on a regression using 9Gb metagenomes.
 
-rule merge_gene_abund:
+use rule merge_msamtools_jobs_input as merge_bed_jobs_input with:
     input:
-        single=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.bed.gz",
+        single=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz",
                     wd = wildcards.wd,
                     omics = wildcards.omics,
                     minto_mode = wildcards.minto_mode,
                     identity = wildcards.identity,
+                    mapper = wildcards.mapper,
+                    sample=ilmn_samples)
+    output:
+        filelist=temp("{wd}/{omics}/9-mapping-profiles/{minto_mode}/merge.gene_abundances.p{identity}.{mapper}.bed.list")
+
+rule merge_gene_abund:
+    input:
+        single=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.gene_abundances.p{identity}.{mapper}.bed.gz",
+                    wd = wildcards.wd,
+                    omics = wildcards.omics,
+                    minto_mode = wildcards.minto_mode,
+                    identity = wildcards.identity,
+                    mapper = ALIGNER_type,
                     sample=ilmn_samples),
-    params:
-        topdir = lambda wildcards, input: os.path.commonpath(input.single),
-        files  = lambda wildcards, input: ','.join(strip_topdir(input.single, os.path.commonpath(input.single)))
+        filelist=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/merge.gene_abundances.p{identity}.{mapper}.bed.list",
+                    wd = wildcards.wd,
+                    omics = wildcards.omics,
+                    minto_mode = wildcards.minto_mode,
+                    identity = wildcards.identity,
+                    mapper = ALIGNER_type)
     output:
         combined="{wd}/{omics}/9-mapping-profiles/{minto_mode}/gene_abundances.p{identity}.bed"
     shadow:
@@ -657,10 +917,7 @@ rule merge_gene_abund:
     shell:
         """
         time (
-            shadowdir=$(pwd)
-            cd {params.topdir}
-            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --input {params.files} --out $shadowdir/out.txt --keys gene_length,ID
-            cd $shadowdir
+            Rscript {script_dir}/merge_profiles.R --threads {threads} --memory {resources.mem} --filelist {input.filelist} --out out.txt --keys gene_length,ID
             rsync -a out.txt {output.combined}
         ) >& {log}
         """
@@ -742,11 +999,12 @@ rule gene_abund_normalization:
 rule read_map_stats:
     localrule: True
     input:
-        map_profile=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.filtered.profile.abund.all.txt.gz",
+        map_profile=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/{sample}/{sample}.p{identity}.{mapper}.filtered.profile.abund.all.txt.gz",
                                             wd = wildcards.wd,
                                             omics = wildcards.omics,
                                             minto_mode = wildcards.minto_mode,
                                             identity = wildcards.identity,
+                                            mapper = ALIGNER_type,
                                             sample=ilmn_samples)
     output:
         maprate= "{wd}/{omics}/9-mapping-profiles/{minto_mode}/mapping.p{identity}.maprate.txt",
