@@ -16,6 +16,7 @@ dependencies:
   - minimap2=2.30
   - msamtools=1.1.3
   - multiqc=1.17
+  - python=3.11
   - parallel=20250422
   - samtools=1.22
   - seqtk=1.5
@@ -25,4 +26,7 @@ dependencies:
   - spades=4.2.0
   - strobealign=0.17.0
   - trimmomatic=0.39
+  - pip
+  - pip:
+    - medaka==2.1.1
 prefix: MIntO_base
