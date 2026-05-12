@@ -497,7 +497,7 @@ rule nanopore_assembly_metaflye:
 ###############################################################################################
 
 # mem_usage
-# Regression: max_mem_kb = 1.214e06 + 4.863e-02*input.contigs
+# Regression: max_mem_kb = 1.214e06 + 4.863e-02*len(input.contigs)
 # On top, it gets a baseline 5GB and every new attempt gets 5GB more.
 rule medaka_consensus:
     input:
