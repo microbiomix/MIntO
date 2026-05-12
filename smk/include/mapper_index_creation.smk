@@ -63,6 +63,8 @@ def get_fasta_index_path(fasta, mapper):
     elif my_mapper == "STROBEALIGN":
         read_len = get_sba_rparam()
         ext_list = [f"r{read_len}.sti"]
+    elif my_mapper == "MINIMAP2":
+        ext_list = ['mmi']
     else:
         raise Exception(f"MIntO error: Unexpected value: MAPPER='{my_mapper}'. Must be one of {BWA, STROBEALIGN}")
 
@@ -149,5 +151,41 @@ rule STROBEALIGN_index:
             # since softlink will resolve to original location.
             ln --force {input.fasta} $output_fasta
             strobealign --create-index -t {threads} $output_fasta -r {wildcards.meanlen}
+        ) >& {log}
+        """
+
+############################################
+# minimap2 index can handle gzipped files
+############################################
+
+# Memory requirements:
+# --------------------
+# Baseline    : 5 GB
+# Size-based  : 4 byte per byte file size (4x4=16 if gzipped)
+# New attempts: +20 GB each time
+rule minimap2_index_in_place:
+    input:
+        fasta="{somewhere}/{something}.{fasta}"
+    output:
+        mmi="{somewhere}/MINIMAP2_index/{something}.{fasta}.mmi",
+    log:
+        "{somewhere}/MINIMAP2_index/minimap2_index.{something}.{fasta}.log"
+    wildcard_constraints:
+        fasta     = r'fasta|fna|fasta\.gz|fna\.gz',
+        something = r'[^/]+'
+    shadow:
+        "minimal"
+    resources:
+        mem = lambda wildcards, input, attempt: 5 + int((16 if input.fasta.endswith('.gz') else 4)*get_file_size_gb(input.fasta)) + 20*(attempt-1),
+    threads: 4
+    conda:
+        config["minto_dir"]+"/envs/MIntO_base.yml" #minimap2
+    shell:
+        """
+        outdir=$(dirname {output.mmi})
+        outfile=$(basename {output.mmi})
+        time (
+            minimap2 -t {threads} -d $outfile {input.fasta}
+            rsync -av --itemize-changes $outfile $outdir/
         ) >& {log}
         """

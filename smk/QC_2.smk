@@ -115,8 +115,8 @@ if len(ilmn_samples) > 0:
         raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or BWA db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
 
 if len(nano_samples) > 0:
-    if os.path.exists(f"{host_genome_path}/minimap2_index/{host_genome_name}.mmi"):
-        print(f"Host genome db {host_genome_path}/minimap2_index/{host_genome_name} will be used")
+    if os.path.exists(f"{host_genome_path}/MINIMAP2_index/{host_genome_name}.mmi"):
+        print(f"Host genome db {host_genome_path}/MINIMAP2_index/{host_genome_name} will be used")
     elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
         print(f"Host genome sequence {host_genome_path}/{host_genome_name} will be used to create minimap2 db")
     else:
@@ -397,25 +397,6 @@ rule qc2_length_nanopore:
 # Remove potential host-derived reads based on genome in "{host_genome_path}/{host_genome_name}".
 # Details of which index files are generated - in 'include/mapper_index_creation.smk'
 
-# For ONT:
-# If CLUSTER_NODES is defined, then return the file symlink'ed to local drives.
-# Otherwise, return the original index files in project work_dir.
-
-def get_host_minimap2_index(wildcards):
-
-    # Where is the index file?
-    # exception if already on local disk
-    if CLUSTER_NODES != None and not host_genome_path.startswith("/scratch"):
-        index_location = 'minimap2_index_local'
-    else:
-        index_location = 'minimap2_index'
-
-    # Get the index file
-    files = f"{host_genome_path}/{index_location}/{host_genome_name}.mmi"
-
-    # Return them
-    return(files)
-
 # BWA mem memory is estimated as 3.1 bytes per base in database (regression: mem = 5.556e+09 + 3.011*input).
 
 # For metaG, 4-hostfree is the final QC2 output.
@@ -515,11 +496,11 @@ use rule qc2_host_filter_illumina as qc2_host_filter_illumina_metaT with:
 # All this is to enable medaka_consensus to autodetect the right model for polishing
 rule qc2_host_filter_nanopore:
     input:
-        ont=rules.qc2_length_nanopore.output.ont,
-        mmi=get_host_minimap2_index
+        ont       = rules.qc2_length_nanopore.output.ont,
+        hostindex = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type)
     output:
-        host_free="{wd}/{omics}/4-hostfree/{sample}/{run}.nanopore.fq.gz",
-        summary="{wd}/{omics}/4-hostfree/{sample}/{run}.NANOPORE.trim.summary",
+        host_free = "{wd}/{omics}/4-hostfree/{sample}/{run}.nanopore.fq.gz",
+        summary   = "{wd}/{omics}/4-hostfree/{sample}/{run}.NANOPORE.trim.summary",
     shadow:
         "minimal"
     log:
@@ -527,15 +508,28 @@ rule qc2_host_filter_nanopore:
     wildcard_constraints:
         omics='metaG'
     resources:
-        mem = lambda wildcards, input, attempt: 10 + int(1.2*os.path.getsize(input.mmi[0])/1e9) + 10*(attempt-1)
+        mem = lambda wildcards, input, attempt: 10 + int(1.2*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
     threads:
-        bwa_threads
+        ALIGNER_threads
+    params:
+        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0]))
     conda:
-        minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
+        minto_dir + "/envs/MIntO_base.yml" #minimap2, msamtools>=1.1.1, samtools, seqkit
     shell:
         """
+        # Stage index files locally if needed
+        # Set db_name accordingly
+        if [ "{params.staging}" == "yes" ]; then
+            source {minto_dir:q}/include/file_staging_functions.sh
+            stage_multiple_files_in {params.final_destination:q} {input.hostindex}
+            db_name={local_cache_dir:q}/{input.hostindex[0]}
+        else
+            db_name={input.hostindex[0]}
+        fi
+
         time (
-                minimap2 -y -ax map-ont -t {threads} -v 3 {input.mmi} {input.ont} \
+                minimap2 -y -ax map-ont -t {threads} -v 3 $db_name {input.ont} \
                   | sed "s/runid=/Xn:Z:runid=/" \
                   | msamtools filter -S -l 300 --invert --keep_unmapped -bu - \
                   | samtools fastq -T Xn - \
