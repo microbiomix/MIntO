@@ -1532,7 +1532,7 @@ NANOPORE_MERGE_SAMPLES:
 
 # NANOPORE_SAMPLES section:
 # -----------------
-# List of nanopore samples that will be assembled individually using MetaSPAdes.
+# List of nanopore samples that will be assembled individually using MetaFlye.
 #
 # E.g.:
 # - I1
