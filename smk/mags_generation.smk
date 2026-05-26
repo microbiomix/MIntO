@@ -365,7 +365,7 @@ rule make_vamb_mags:
             python {script_dir}/take_all_genomes.py \
                     --vamb_cluster_tsv {input.tsv} \
                     --contigs_file {input.contigs_file} \
-                    --assembly_method_name {wildcards.binner} \
+                    --binning_method_name {wildcards.binner} \
                     --min_fasta_length {params.min_mag_length} \
                     --output_folder {output.bin_folder} \
                     --discarded_genomes_info {output.discarded_genomes}

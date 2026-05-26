@@ -68,8 +68,8 @@ def read_params():
 		default = "_NODE"
 		)
 
-	p.add_argument("--assembly_method_name", 
-		help = "the assembly method used (aaey, aaez, vamb384, vamb512",
+	p.add_argument("--binning_method_name", 
+		help = "the binning method used (aaey, aaez, vae512, vaevae512, graphmb",
 		default= "")
 
 	p.add_argument("--contigs_file", 
@@ -91,7 +91,7 @@ args = read_params()
 
 cluster_tsv =  args.vamb_cluster_tsv
 contigs_file = args.contigs_file
-assembly_method = args.assembly_method_name
+binning_method = args.binning_method_name
 min_fasta = int(args.min_fasta_length)
 output = args.output_folder
 discarded_genomes = args.discarded_genomes_info
@@ -134,8 +134,7 @@ remaining_bins  = 0
 
 for bins in bins_dictionary:
 	#print("Processing {}".format(bins))
-	#renamed_bins = folder_fasta_file + "/{}.{}.{}.{}.fna".format(diet, step, assembly_method, bins)
-	renamed_bins = output + "/{}.{}.fna".format(assembly_method, bins)
+	renamed_bins = output + "/{}.{}.fna".format(binning_method, bins)
 	bins_length = 0
 
 	for contig in bins_dictionary[bins]:
