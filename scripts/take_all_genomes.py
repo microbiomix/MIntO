@@ -8,8 +8,6 @@ Parameters:
     Minimum length of the contigs (default 500000)
 """
 
-from Bio import SeqIO
-from Bio.SeqUtils import GC
 import os
 from os import listdir
 from os.path import isfile, join
@@ -22,8 +20,39 @@ import math
 import pandas as pd
 import time
 import yaml
-from Bio.SeqRecord import SeqRecord
-import gzip
+
+# Open a file, possibly gzipped
+
+def open_file(filename, mode, compresslevel=2):
+    import gzip
+
+    if filename.endswith('.gz'):
+        return gzip.open(filename, mode, compresslevel=compresslevel)
+    else:
+        return open(filename, mode)
+
+def fasta_iter(infile):
+    """
+    Source: https://www.biostars.org/p/710/
+    modified from Brent Pedersen
+    Correct Way To Parse A Fasta File In Python
+    given a fasta file. yield tuples of header, sequence
+    """
+
+    from itertools import groupby
+
+    #first open the file outside
+    fh = open_file(infile, mode='rt')
+
+    # ditch the boolean (x[0]) and just keep the header or sequence since
+    # we know they alternate.
+    faiter = (x[1] for x in groupby(fh, lambda line: line[0] == ">"))
+    for header in faiter:
+        # drop the ">"
+        headerStr = header.__next__()[1:].strip()
+        # join all sequence lines to one.
+        seq = "".join(s.strip() for s in faiter.__next__())
+        yield (headerStr, seq)
 
 def read_params():
 	p = ap.ArgumentParser( description = ( "Given a cluster table from vamb, it retrieves the genome considereing the minimum length"),
@@ -72,15 +101,11 @@ discarded_genomes = args.discarded_genomes_info
 
 dictionary_of_contigs_length = {}
 
-file_opener = gzip.open if contigs_file.endswith('.gz') else open
-with file_opener(contigs_file, 'rt') as handle:
-	fasta_sequences = SeqIO.parse(handle, "fasta")
-	for record in fasta_sequences:
-		contigs_name = str(record.id).split(" ")[0] # take only the name without the flag
-		sequence = record.seq
+for header, sequence in fasta_iter(contigs_file):
+	contig_name = str(header).split(" ")[0] # take only the name without the flag
 
-		if not contigs_name in dictionary_of_contigs_length:
-			dictionary_of_contigs_length[contigs_name] = sequence
+	if not contig_name in dictionary_of_contigs_length:
+		dictionary_of_contigs_length[contig_name] = sequence
 	
 # open the cluster.tsv table
 cluster_tsv = pd.read_csv(cluster_tsv, sep = "\t", names = ["bin", "contig"])
