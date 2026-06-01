@@ -61,7 +61,7 @@ else:
     df2["rownum"] = df2.groupby("ID")["dbCAN.EC"].cumcount().add(1)
     df2 = df2[["ID", "dbCAN.EC", "rownum"]]
     # in theory each domain separated by | have an EC number so df1 and df2 should have corresponding amount of rows
-    df = df1.merge(df2, on = ['ID', 'rownum'], how = "left")
+    df = df1.merge(df2, on = ['ID', 'rownum'], how = "outer")
     df = df.fillna("-")
     df.drop(columns = ['rownum'], inplace=True)
     # remove duplicates
