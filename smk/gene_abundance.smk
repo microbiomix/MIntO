@@ -1129,7 +1129,7 @@ ANNOTATION_file:
 # If MINTO_MODE is 'MAG' or 'refgenome', this list could contain elements from:
 # 'eggNOG.OGs', 'eggNOG.KEGG_Pathway', 'eggNOG.KEGG_Module', 'eggNOG.KEGG_KO', 'eggNOG.PFAMs',
 # 'kofam.KEGG_Pathway', 'kofam.KEGG_Module', 'kofam.KO',
-# "dbCAN.EC", "dbCAN.binding_module", "dbCAN.dbCAN_sub", "dbCAN.dbCAN_sub.subfamily".
+# "dbCAN.EC", "dbCAN.binding_module", "dbCAN.RecommendResults", "dbCAN.subfamily".
 #
 #   E.g.:
 # - eggNOG.OGs
@@ -1142,7 +1142,7 @@ ANNOTATION_ids:
  - eggNOG.PFAMs
  - dbCAN.EC
  - dbCAN.binding_module
- - dbCAN.dbCAN_sub.subfamily
+ - dbCAN.subfamily
  - kofam.KEGG_Pathway
  - kofam.KEGG_Module
  - kofam.KEGG_KO
