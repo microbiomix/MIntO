@@ -36,19 +36,18 @@ if (args.format == "minto"):
     # replace hit separators with comma
     df['EC_nums'] = df['EC_nums'].str.replace(r':\d+', '', regex=True).str.replace(";", ",")
     df['Substrate'] = df['Substrate'].str.replace(";", ",")
-    df1 = df.transform({'RecommendResults': make_unique_domains, 'EC_nums': make_unique_domains, 'Substrate': make_unique_words})
+    df['RecommendResults'] = df['RecommendResults'].transform({'RecommendResults': make_unique_domains})
+    df['EC_nums'] = df['EC_nums'].transform({'EC_nums': make_unique_domains})
+    df['Substrate'] = df['Substrate'].transform({'Substrate': make_unique_words})
     # extract the binding domains
-    df1['dbCAN.binding_module'] = df1['RecommendResults'].str.replace(r',[CG][ETH].*', '', regex=True).str.extract("(CBM\d+.*),?G?")
+    df['dbCAN.binding_module'] = df['RecommendResults'].str.replace(r',[CG][ETH].*', '', regex=True).str.extract("(CBM\d+.*),?G?")
     # remove the eCAMI sub-clustering numbers
-    df1['dbCAN.binding_module'] = df1['dbCAN.binding_module'].str.replace(r'_e\d+', '', regex=True)
-    df1['dbCAN.subfamily'] = df1['RecommendResults'].str.replace(r'_e\d+', '', regex=True)
+    df['dbCAN.binding_module'] = df['dbCAN.binding_module'].str.replace(r'_e\d+', '', regex=True)
+    df['dbCAN.subfamily'] = df['RecommendResults'].str.replace(r'_e\d+', '', regex=True)
     # extract the cazymes
-    df1['dbCAN.subfamily'] = df1['dbCAN.subfamily'].str.replace(r'CBM\d+,?', '', regex=True).str.replace(r',$', '', regex=True)
+    df['dbCAN.subfamily'] = df['dbCAN.subfamily'].str.replace(r'CBM\d+,?', '', regex=True).str.replace(r',$', '', regex=True)
     # fill NAN and rename
-    df1 = df1.fillna("-").rename(columns={"EC_nums": "dbCAN.EC", "RecommendResults": "dbCAN.RecommendResults", "Substrate": "dbCAN.Substrate"})
-    # add back the loci_id
-    df = df.drop(columns=['EC_nums','RecommendResults','Substrate'])
-    df = df.join(df1)
+    df = df.fillna("-").rename(columns={"EC_nums": "dbCAN.EC", "RecommendResults": "dbCAN.RecommendResults", "Substrate": "dbCAN.Substrate"})
 else:
     # separate the multi-domain hits into list-in-cells
     df["dbCAN.hit"]=df["RecommendResults"].str.split("|")
@@ -62,7 +61,8 @@ else:
     df2["rownum"] = df2.groupby("ID")["dbCAN.EC"].cumcount().add(1)
     df2 = df2[["ID", "dbCAN.EC", "rownum"]]
     # in theory each domain separated by | have an EC number so df1 and df2 should have corresponding amount of rows
-    df = df1.merge(df2, on = ['ID', 'rownum'])
+    df = df1.merge(df2, on = ['ID', 'rownum'], how = "left")
+    df = df.fillna("-")
     df.drop(columns = ['rownum'], inplace=True)
     # remove duplicates
     df = df.drop_duplicates()
