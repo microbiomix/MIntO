@@ -881,10 +881,15 @@ NAME_host_genome: None
 
 LOCAL_DATABASE_CACHE_DIR: None
 
-# Which aligner or mapper to use: 'bwa' or 'strobealign' is supported
+# Which aligner or mapper to use for ILLUMINA: 'bwa' or 'strobealign' is supported
 
-ALIGNER_type: bwa
-ALIGNER_threads: 8
+ILLUMINA_ALIGNER_type: bwa
+ILLUMINA_ALIGNER_threads: 8
+
+# Which aligner or mapper to use for NANOPORE: 'minimap2' is supported
+
+NANOPORE_ALIGNER_type: minimap2
+NANOPORE_ALIGNER_threads: 8
 ___EOF___
 
             # Generate part2 of config file

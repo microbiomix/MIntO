@@ -22,6 +22,8 @@ GLOBAL_CONFIG_KEYTYPES = {
     'ILLUMINA_READ_minlen' : int,
     'ILLUMINA_SAMPLES' : [list, 'file', str],
     'ILLUMINA_suffix' : list,
+    'ILLUMINA_ALIGNER_type' : str,
+    'ILLUMINA_ALIGNER_threads' : int,
 
     # NANOPORE-related variables
     'NANOPORE_MERGE_SAMPLES': dict,
@@ -30,11 +32,11 @@ GLOBAL_CONFIG_KEYTYPES = {
     'NANOPORE_READ_minlen' : int,
     'NANOPORE_SAMPLES' : list,
     'NANOPORE_suffix' : str,
+    'NANOPORE_ALIGNER_type' : str,
+    'NANOPORE_ALIGNER_threads' : int,
 
     # others
     'abundance_normalization' : str,
-    'ALIGNER_threads' : int,
-    'ALIGNER_type' : str,
     'alignment_identity' : int,
     'ANNOTATION_file' : 'file',
     'ANNOTATION_ids' : list,
@@ -67,6 +69,9 @@ GLOBAL_CONFIG_KEYTYPES = {
     'FASTP_tail_mean_qual' : int,
     'FASTP_threads' : int,
     'GTDB_TAXONOMY_VERSION' : str,
+    'GRAPHMB_EXTRA_ARGS' : str,
+    'GRAPHMB_GPU' : bool,
+    'GRAPHMB_THREADS' : int,
     'HYBRID' : dict,
     'LOCAL_DATABASE_CACHE_DIR' : str,
     'MAG_omics' : str,
@@ -144,15 +149,18 @@ GLOBAL_CONFIG_KEYTYPES = {
 # E.g., This module will always refer to minimum read length with 'ILLUMINA_READ_minlen'.
 #       But if it cannot find 'ILLUMINA_READ_minlen', it will look for 'TRIMMOMATIC_minlen' or 'READ_minlen'.
 ALIASES = {
-    'ILLUMINA_SAMPLES'       : ['ILLUMINA'],
-    'ILLUMINA_MULTIPLEX_TECH': ['MULTIPLEX_TECH'],
-    'ILLUMINA_READ_minlen'   : ['TRIMMOMATIC_minlen', 'READ_minlen'],
-    'ILLUMINA_raw_reads_dir' : ['raw_reads_dir'],
-    'ILLUMINA_MERGE_SAMPLES' : ['MERGE_ILLUMINA_SAMPLES'],
-    'NANOPORE_SAMPLES'       : ['NANOPORE'],
-    'METASPADES_CONTIGS_OR_SCAFFOLDS' : ['SPADES_CONTIGS_OR_SCAFFOLDS'],
-    'ALIGNER_threads'        : ['BWA_threads', 'BWA_host_threads'],
     'FASTP_adapters'         : ['FASTP_adaptors'],
+    'ILLUMINA_ALIGNER_threads'        : ['ALIGNER_threads', 'BWA_threads', 'BWA_host_threads'],
+    'ILLUMINA_ALIGNER_type'  : ['ALIGNER_type'],
+    'ILLUMINA_MERGE_SAMPLES' : ['MERGE_ILLUMINA_SAMPLES'],
+    'ILLUMINA_MULTIPLEX_TECH': ['MULTIPLEX_TECH'],
+    'ILLUMINA_raw_reads_dir' : ['raw_reads_dir'],
+    'ILLUMINA_READ_minlen'   : ['TRIMMOMATIC_minlen', 'READ_minlen'],
+    'ILLUMINA_SAMPLES'       : ['ILLUMINA'],
+    'METASPADES_CONTIGS_OR_SCAFFOLDS' : ['SPADES_CONTIGS_OR_SCAFFOLDS'],
+    'NANOPORE_ALIGNER_threads'        : ['ALIGNER_threads', 'BWA_threads', 'BWA_host_threads'],
+    'NANOPORE_ALIGNER_type'  : ['ALIGNER_type'],
+    'NANOPORE_SAMPLES'       : ['NANOPORE'],
     'TRIMMOMATIC_adaptors'   : ['TRIMMOMATIC_adapters']
 }
 
