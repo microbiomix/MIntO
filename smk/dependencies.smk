@@ -280,7 +280,17 @@ rule eggnog_db:
     shell:
         """
         mkdir -p {minto_dir}/data/eggnog_data/data
+
         time (
+
+            # eggnog-mapper from conda has invalid DB URLs. This needs to be patched.
+            # patch download_eggnog_data.py, if not patched already
+            TARGET=$(which download_eggnog_data.py)
+            if ! grep -q "Patched by MIntO on" $TARGET; then
+                echo "# Patching $TARGET"
+                perl -i -pe 'use Time::Piece; $date = localtime->date; s/eggnogdb.embl.de/eggnog5.embl.de/; s/^BASE_URL/# Patched by MIntO on $date\\nBASE_URL/' $TARGET
+            fi
+
             download_eggnog_data.py -y --data_dir {minto_dir}/data/eggnog_data/data -P -M -f
             echo 'eggNOG database downloaded'
         ) &> {log}
