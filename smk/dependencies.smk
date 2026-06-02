@@ -735,16 +735,18 @@ rule download_metabuli_GTDB_db:
         """
         time (
             # Download
-            metabuli databases {metabuli_tax_db} outdir tmpdir --threads {threads}
+            wget --no-verbose https://steineggerlab.s3.amazonaws.com/metabuli/archive/gtdb.tar.gz
             if [ $? -eq 0 ]; then
                 echo 'metabuli download: OK'
             else
                 echo 'metabuli download: FAIL'
             fi
-            rm -rf tmpdir
+
+            # Extract
+            tar xfz gtdb.tar.gz
 
             # Now sync to minto_dir
-            rsync -a outdir/{params.dbdir}/* $(dirname {output.db})
+            rsync -a {params.dbdir}/* $(dirname {output.db})
 
         ) &> {log}
         """
