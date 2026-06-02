@@ -32,81 +32,89 @@ use rule QC_2_base, QC_2_rpkg, QC_2_mpl, QC_2_motus from print_versions as versi
 
 snakefile_name = print_versions.get_smk_filename()
 
+##############################################
+# Parameters read no matter what
+##############################################
+
+host_genome_path  = validate_required_key(config, 'PATH_host_genome')
+host_genome_name  = validate_required_key(config, 'NAME_host_genome')
+local_cache_dir   = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
+metaphlan_version = validate_required_key(config, 'metaphlan_version')
+motus_version     = validate_required_key(config, 'motus_version')
+
+##############################################
+# For ILLUMINA and/or NANOPORE:
+# Get sample list
+# Register composite samples
+# Make list of clean illumina/nanopore samples after merging reps
+##############################################
+
 taxonomies_versioned = list()
 ilmn_samples = list()
 merged_illumina_samples = dict()
+nonredundant_ilmn_samples = list()
+read_minlen_illumina = 50
+ILLUMINA_ALIGNER_threads = 8
+
 nano_samples = list()
 merged_nanopore_samples = dict()
-
-##############################################
-# Register composite samples
-##############################################
-
-# Make list of merged illumina samples, if ILLUMINA_MERGE_SAMPLES in config
-if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
-    for m in x:
-        #print(" "+m)
-        merged_illumina_samples.append(m)
-
-# Make list of merged nanopore samples, if NANOPORE_MERGE_SAMPLES in config
-if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES')):
-    merged_nanopore_samples = x
-
-##############################################
-# Get sample list
-##############################################
+nonredundant_nano_samples = list()
+read_minlen_nanopore = 500
 
 # Make list of illumina samples, if ILLUMINA_SAMPLES in config
 if (x := validate_optional_key(config, 'ILLUMINA_SAMPLES')):
     check_input_directory(x, locations = ['5-1-sortmerna', '4-hostfree', '3-minlength', '1-trimmed'])
     ilmn_samples = x
 
+    # Make list of merged illumina samples, if ILLUMINA_MERGE_SAMPLES in config
+    if (y := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES')):
+        for m in y:
+            #print(" "+m)
+            merged_illumina_samples.append(m)
+
     # If it's composite sample, then don't need to see them until it gets merged later
-    for i in x:
-        if i in merged_illumina_samples.keys():
-            ilmn_samples.remove(i)
+    ilmn_samples = [i for i in ilmn_samples if i not in merged_illumina_samples]
+
+    # Find out which components of composite samples should be deleted from analysis
+    ilmn_reps_to_delete = []
+    if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
+        ilmn_reps_to_delete = [j.strip() for m in merged_illumina_samples.values() for j in m.split('+')]
+
+    # Make list of clean illumina/nanopore samples after merging reps
+    nonredundant_ilmn_samples = list(merged_illumina_samples.keys())
+    for i in ilmn_samples:
+        if i not in ilmn_reps_to_delete:
+            nonredundant_ilmn_samples.append(i)
 
 # Make list of nanopore samples, if NANOPORE_SAMPLES in config
 if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
     check_input_directory(x, locations = ['4-hostfree', '3-minlength', '1-trimmed'])
     nano_samples = x
 
+    # Make list of merged nanopore samples, if NANOPORE_MERGE_SAMPLES in config
+    if (y := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES')):
+        merged_nanopore_samples = y
+
     # If it's composite sample, then don't need to see them until it gets merged later
-    for i in x:
-        if i in merged_nanopore_samples.keys():
-            nano_samples.remove(i)
+    nano_samples = [i for i in nano_samples if i not in merged_nanopore_samples]
 
-##############################################
-# Make list of clean illumina/nanopore samples after merging reps
-##############################################
+    # Find out which components of composite samples should be deleted from analysis
+    nano_reps_to_delete = []
+    if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
+        nano_reps_to_delete = [j.strip() for m in merged_nanopore_samples.values() for j in m.split('+')]
 
-# Create nonredundant list of individual and merged samples
-# If requested, remove individual contributors for some outputs
-
-ilmn_reps_to_delete = []
-if (x := validate_optional_key(config, 'ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
-    ilmn_reps_to_delete = [j.strip() for m in merged_illumina_samples.values() for j in m.split('+')]
-nonredundant_ilmn_samples = list(merged_illumina_samples.keys())
-for i in ilmn_samples:
-    if i not in ilmn_reps_to_delete:
-        nonredundant_ilmn_samples.append(i)
-
-nano_reps_to_delete = []
-if (x := validate_optional_key(config, 'NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS')):
-    nano_reps_to_delete = [j.strip() for m in merged_nanopore_samples.values() for j in m.split('+')]
-nonredundant_nano_samples = list(merged_nanopore_samples.keys())
-for i in nano_samples:
-    if i not in nano_reps_to_delete:
-        nonredundant_nano_samples.append(i)
-
-##############################################
-# Host genome filtering
-##############################################
-
-host_genome_path = validate_required_key(config, 'PATH_host_genome')
-host_genome_name = validate_required_key(config, 'NAME_host_genome')
+    # Make list of clean illumina/nanopore samples after merging reps
+    nonredundant_nano_samples = list(merged_nanopore_samples.keys())
+    for i in nano_samples:
+        if i not in nano_reps_to_delete:
+            nonredundant_nano_samples.append(i)
 
 if len(ilmn_samples) > 0:
+
+    ##############################################
+    # Host genome filtering
+    ##############################################
+
     if os.path.exists(f"{host_genome_path}/BWA_index/{host_genome_name}.pac"):
         print(f"Host genome db {host_genome_path}/BWA_index/{host_genome_name} will be used")
     elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
@@ -114,7 +122,104 @@ if len(ilmn_samples) > 0:
     else:
         raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or BWA db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
 
+    ##############################################
+    # Minimum read-length trimming
+    ##############################################
+
+    read_minlen_illumina = validate_required_key(config, 'ILLUMINA_READ_minlen')
+    if read_minlen_illumina < 50:
+        read_minlen_illumina = 50
+
+    ##############################################
+    # Host genome filtering
+    ##############################################
+
+    valid_aligner_types = ['bwa', 'strobealign']
+    ILLUMINA_ALIGNER_type = validate_required_key(config, 'ILLUMINA_ALIGNER_type')
+    check_allowed_values('ILLUMINA_ALIGNER_type', ILLUMINA_ALIGNER_type, valid_aligner_types)
+    ILLUMINA_ALIGNER_threads = validate_required_key(config, 'ILLUMINA_ALIGNER_threads')
+
+    ##############################################
+    # taxonomy
+    ##############################################
+
+    TAXA_threads = validate_required_key(config, 'TAXA_threads')
+    TAXA_memory  = validate_required_key(config, 'TAXA_memory')
+
+    taxonomy = validate_required_key(config, 'TAXA_profiler')
+    allowed = ('metaphlan', 'motus_rel', 'motus_raw')
+    for x in taxonomy.split(","):
+        check_allowed_values('TAXA_profiler', x, allowed)
+
+    taxonomies = taxonomy.split(",")
+    for t in taxonomies:
+        version="unknown"
+        if t.startswith("motus"):
+            version=motus_version
+        elif t.startswith("metaphlan"):
+            version=metaphlan_version
+        taxonomies_versioned.append(t+"."+version)
+
+    ##############################################
+    # metaG - QC plots
+    ##############################################
+
+    plot_args_list = list()
+
+    main_factor = validate_required_key(config, 'MAIN_factor')
+    plot_args_list.append('--factor ' + main_factor)
+
+    plot_factor2 = validate_optional_key(config, 'PLOT_factor2')
+    if plot_factor2 is not None:
+        plot_args_list.append(f"--factor2 {plot_factor2}")
+
+    plot_time = validate_optional_key(config, 'PLOT_time')
+    if plot_time is not None:
+        plot_args_list.append(f"--time {plot_time}")
+
+    plot_args_str = ' '.join(plot_args_list)
+
+
+    ##############################################
+    # metaT - rRNA removal
+    ##############################################
+
+    if omics == 'metaT':
+        sortmeRNA_threads = validate_required_key(config, 'sortmeRNA_threads')
+        sortmeRNA_memory = validate_required_key(config, 'sortmeRNA_memory')
+        sortmeRNA_db = validate_required_key(config, 'sortmeRNA_db')
+        sortmeRNA_db_idx = validate_required_key(config, 'sortmeRNA_db_idx')
+
+
+    ##############################################
+    # Metaphlan DB version
+    ##############################################
+    with open(minto_dir + "/data/metaphlan/" + metaphlan_version + "/mpa_latest", 'r') as file:
+        metaphlan_index = file.read().rstrip()
+
+    ##############################################
+    # Co-assembly grouping variable
+    ##############################################
+
+    coas_factor = validate_optional_key(config, 'COAS_factor')
+    if coas_factor is None:
+        coas_factor = main_factor
+
+    ##############################################
+    # k-mer clustering
+    ##############################################
+
+    if omics == 'metaG':
+        sourmash_m = validate_required_key(config, 'SOURMASH_min_abund')
+        sourmash_M = validate_required_key(config, 'SOURMASH_max_abund')
+        sourmash_cutoff = validate_required_key(config, 'SOURMASH_cutoff')
+
 if len(nano_samples) > 0:
+
+    ##############################################
+    # Host genome filtering
+    ##############################################
+
     if os.path.exists(f"{host_genome_path}/MINIMAP2_index/{host_genome_name}.mmi"):
         print(f"Host genome db {host_genome_path}/MINIMAP2_index/{host_genome_name} will be used")
     elif os.path.exists(f"{host_genome_path}/{host_genome_name}"):
@@ -122,110 +227,24 @@ if len(nano_samples) > 0:
     else:
         raise Exception(f"NAME_host_genome={host_genome_name} does not exist as fasta or minimap2 db in PATH_host_genome={host_genome_path}. Please fix {config_path}")
 
-##############################################
-# Minimum read-length trimming
-##############################################
+    ##############################################
+    # Minimum read-length trimming
+    ##############################################
 
-# Short reads
-read_minlen_illumina = validate_required_key(config, 'ILLUMINA_READ_minlen')
-if read_minlen_illumina < 50:
-    read_minlen_illumina = 50
+    read_minlen_nanopore = 500
+    if (x := validate_optional_key(config, 'NANOPORE_READ_minlen')):
+        read_minlen_nanopore = x
+        if read_minlen_nanopore < 500:
+            read_minlen_nanopore = 500
 
-# ONT reads
-read_minlen_nanopore = 500
-if (x := validate_optional_key(config, 'NANOPORE_READ_minlen')):
-    read_minlen_nanopore = x
-    if read_minlen_nanopore < 500:
-        read_minlen_nanopore = 500
+    ##############################################
+    # Host genome filtering
+    ##############################################
 
-##############################################
-# Host genome filtering
-##############################################
-
-valid_aligner_types = ['bwa', 'strobealign']
-ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
-check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
-
-ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
-local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
-
-##############################################
-# taxonomy
-##############################################
-
-TAXA_threads = validate_required_key(config, 'TAXA_threads')
-TAXA_memory  = validate_required_key(config, 'TAXA_memory')
-
-taxonomy = validate_required_key(config, 'TAXA_profiler')
-allowed = ('metaphlan', 'motus_rel', 'motus_raw')
-for x in taxonomy.split(","):
-    check_allowed_values('TAXA_profiler', x, allowed)
-
-metaphlan_version = validate_required_key(config, 'metaphlan_version')
-motus_version     = validate_required_key(config, 'motus_version')
-
-taxonomies = taxonomy.split(",")
-for t in taxonomies:
-    version="unknown"
-    if t.startswith("motus"):
-        version=motus_version
-    elif t.startswith("metaphlan"):
-        version=metaphlan_version
-    taxonomies_versioned.append(t+"."+version)
-
-##############################################
-# metaG - QC plots
-##############################################
-
-plot_args_list = list()
-
-main_factor = validate_required_key(config, 'MAIN_factor')
-plot_args_list.append('--factor ' + main_factor)
-
-plot_factor2 = validate_optional_key(config, 'PLOT_factor2')
-if plot_factor2 is not None:
-    plot_args_list.append(f"--factor2 {plot_factor2}")
-
-plot_time = validate_optional_key(config, 'PLOT_time')
-if plot_time is not None:
-    plot_args_list.append(f"--time {plot_time}")
-
-plot_args_str = ' '.join(plot_args_list)
-
-
-##############################################
-# metaT - rRNA removal
-##############################################
-
-if omics == 'metaT':
-    sortmeRNA_threads = validate_required_key(config, 'sortmeRNA_threads')
-    sortmeRNA_memory = validate_required_key(config, 'sortmeRNA_memory')
-    sortmeRNA_db = validate_required_key(config, 'sortmeRNA_db')
-    sortmeRNA_db_idx = validate_required_key(config, 'sortmeRNA_db_idx')
-
-
-##############################################
-# Metaphlan DB version
-##############################################
-with open(minto_dir + "/data/metaphlan/" + metaphlan_version + "/mpa_latest", 'r') as file:
-    metaphlan_index = file.read().rstrip()
-
-##############################################
-# Co-assembly grouping variable
-##############################################
-
-coas_factor = validate_optional_key(config, 'COAS_factor')
-if coas_factor is None:
-    coas_factor = main_factor
-
-##############################################
-# k-mer clustering
-##############################################
-
-if omics == 'metaG':
-    sourmash_m = validate_required_key(config, 'SOURMASH_min_abund')
-    sourmash_M = validate_required_key(config, 'SOURMASH_max_abund')
-    sourmash_cutoff = validate_required_key(config, 'SOURMASH_cutoff')
+    valid_aligner_types = ['minimap2']
+    NANOPORE_ALIGNER_type = validate_required_key(config, 'NANOPORE_ALIGNER_type')
+    check_allowed_values('NANOPORE_ALIGNER_type', NANOPORE_ALIGNER_type, valid_aligner_types)
+    NANOPORE_ALIGNER_threads = validate_required_key(config, 'NANOPORE_ALIGNER_threads')
 
 ##############################################
 # Define all the outputs needed by target 'all'
@@ -273,15 +292,9 @@ def smash_plot_output():
 def readcounts_output():
     result = list()
     if len(ilmn_samples) > 0:
-        result.extend(expand("{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt",
-                        wd = working_dir,
-                        omics = omics)
-                     )
+        result.append(f"{working_dir}/output/2-qc/{omics}.ILLUMINA.readcounts.txt")
     if len(nano_samples) > 0:
-        result.extend(expand("{wd}/output/2-qc/{omics}.NANOPORE.readcounts.txt",
-                        wd = working_dir,
-                        omics = omics)
-                     )
+        result.append(f"{working_dir}/output/2-qc/{omics}.NANOPORE.readcounts.txt")
     return(result)
 
 def merged_sample_output():
@@ -305,10 +318,10 @@ def merged_sample_output():
     return(result)
 
 def next_step_config_yml_output():
-    result = expand("{wd}/{omics}/{yaml}.yaml",
-                wd = working_dir,
-                yaml = ['assembly', 'mapping'],
-                omics = omics)
+    result = list()
+    result.append(f"{working_dir}/{omics}/assembly.yaml")
+    if len(ilmn_samples) > 0:
+        result.append(f"{working_dir}/{omics}/mapping.yaml")
     return(result)
 
 rule all:
@@ -321,230 +334,13 @@ rule all:
         print_versions.get_version_output(snakefile_name)
     default_target: True
 
-###############################################################################################
-# Pre-processing of metaG and metaT data step
-# Read length filtering using the MINLEN
-###############################################################################################
-
-# We use suffix fq.gz for "seqkit seq" output even though it outputs unzipped fq.
-# This is because the next step "seqkit pair" uses extension to decide whether to compress using pigz or not.
-rule qc2_length_illumina:
-    input:
-        read_fw='{wd}/{omics}/1-trimmed/{sample}/{run}.1.fq.gz',
-        read_rv='{wd}/{omics}/1-trimmed/{sample}/{run}.2.fq.gz',
-    output:
-        paired1=temp("{wd}/{omics}/3-minlength/{sample}/{run}.1.fq.gz"),
-        paired2=temp("{wd}/{omics}/3-minlength/{sample}/{run}.2.fq.gz"),
-        summary="{wd}/{omics}/3-minlength/{sample}/{run}.ILLUMINA.trim.summary"
-    shadow:
-        "minimal"
-    params:
-        read_length_cutoff = read_minlen_illumina
-    log:
-        "{wd}/logs/{omics}/3-minlength/illumina_{sample}_{run}.log"
-    resources:
-        mem=20
-    threads:
-        6
-    conda:
-        minto_dir + "/envs/MIntO_base.yml"
-    shell:
-        """
-        remote_dir=$(dirname {output.paired1})
-        time (
-            mkfifo {wildcards.run}.1.fq.gz
-            mkfifo {wildcards.run}.2.fq.gz
-            seqkit seq {input.read_fw} -m {params.read_length_cutoff} | seqkit replace -p '/1' -r '' > {wildcards.run}.1.fq.gz &
-            seqkit seq {input.read_rv} -m {params.read_length_cutoff} | seqkit replace -p '/2' -r '' > {wildcards.run}.2.fq.gz &
-            seqkit pair -1 {wildcards.run}.1.fq.gz -2 {wildcards.run}.2.fq.gz -O result -u >& {output.summary}
-            rsync -a result/{wildcards.run}.* $remote_dir/
-        ) >& {log}
-        """
-
-rule qc2_length_nanopore:
-    input:
-        ont="{wd}/{omics}/1-trimmed/{sample}/{run}.nanopore.fq.gz",
-    output:
-        ont="{wd}/{omics}/3-minlength/{sample}/{run}.nanopore.fq.gz",
-        summary="{wd}/{omics}/3-minlength/{sample}/{run}.NANOPORE.trim.summary"
-    shadow:
-        "minimal"
-    params:
-        read_length_cutoff = read_minlen_nanopore
-    log:
-        "{wd}/logs/{omics}/3-minlength/nanopore_{sample}_{run}.log"
-    resources:
-        mem=20
-    threads:
-        2
-    conda:
-        minto_dir + "/envs/MIntO_base.yml"
-    shell:
-        """
-        time (
-            fastplong --disable_quality_filtering --disable_adapter_trimming --length_required {params.read_length_cutoff} --in {input.ont} --stdout \
-                    | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
-                    | gzip > filt.fq.gz
-            rsync filt.fq.gz {output.ont}
-        ) >& {log}
-        """
-
-###############################################################################################
-# Pre-processing of metaG and metaT data
-# Remove host genome sequences
-###############################################################################################
-
-# Remove potential host-derived reads based on genome in "{host_genome_path}/{host_genome_name}".
-# Details of which index files are generated - in 'include/mapper_index_creation.smk'
-
-# BWA mem memory is estimated as 3.1 bytes per base in database (regression: mem = 5.556e+09 + 3.011*input).
-
-# For metaG, 4-hostfree is the final QC2 output.
-# For metaT, it is not.
-# Therefore, mark it as temp() only for metaT using rule inheritance with different wildcard_constraints.
-
-# Function get_sba_mean_len() defined in mapper_index_creation.smk
-
-rule qc2_sba_mean_length:
-    input:
-        readlen_file="{wd}/{omics}/1-trimmed/samples_read_length.txt"
-    output:
-        meanlen_file="{wd}/output/2-qc/{omics}.mean_length.txt"
-    params:
-        read_length_cutoff=read_min_len
-    resources:
-        mem=2
-    threads: 2
-    run:
-        sba_mean_len = get_sba_mean_len(input.readlen_file)
-        with open(output.meanlen_file, "w") as fp:
-            print(sba_mean_len, file = fp)
-
-# main rule: metaG - output is not temporary
-rule qc2_host_filter_illumina:
-    input:
-        fasta      = f"{host_genome_path}/{host_genome_name}",
-        pairead_fw = rules.qc2_length_filter.output.paired1,
-        pairead_rv = rules.qc2_length_filter.output.paired2,
-        hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type),
-        meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
-    output:
-        host_free_fw = "{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz",
-        host_free_rv = "{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz",
-    shadow:
-        "minimal"
-    log:
-        "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome.log"
-    wildcard_constraints:
-        omics='metaG'
-    resources:
-        mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
-    threads:
-        ALIGNER_threads
-    params:
-        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
-        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0]))
-    conda:
-        minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
-    shell:
-        """
-        remote_dir=$(dirname {output.host_free_fw:q})
-        # Stage index files locally if needed
-        # Set db_name accordingly
-        if [ "{params.staging}" == "yes" ]; then
-            source {minto_dir:q}/include/file_staging_functions.sh
-            stage_multiple_files_in {params.final_destination:q} {input.hostindex} {input.fasta}
-            db_name={local_cache_dir:q}/{input.hostindex[0]}
-        else
-            db_name={input.hostindex[0]}
-        fi
-
-        # Remove the index file extension to get db_name argument and run aligner
-        if [[ "{ALIGNER_type:q}" == "bwa" ]]; then
-            db_name=${{db_name%.0123}}
-            time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
-                | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
-                | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
-            rsync -a * $remote_dir/
-            ) >& {log}
-        elif [[ "{ALIGNER_type:q}" == "strobealign" ]]; then
-            r_arg="$(cat {input.meanlen_txt})"
-            db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
-            time (strobealign --use-index -r $r_arg -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
-                | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
-                | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
-            rsync -a * $remote_dir/
-            ) >& {log}
-        else
-            echo "ERROR: No index for {ALIGNER_type}" > {log}
-        fi
-        """
-
-# derived rule: metaT - output is temporary
-use rule qc2_host_filter_illumina as qc2_host_filter_illumina_metaT with:
-    output:
-        host_free_fwd=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz"),
-        host_free_rev=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz"),
-    wildcard_constraints:
-        omics='metaT'
-
-# minimap2 mem memory is estimated as 1.2 bytes per base in database (quick check with ONT files).
-# minimap2 will write the comments in the fastq header if given '-y' argument
-# But this will be a comment in the 12th field
-# If ONT data has annotation about the technology using "runid=.*" format, we convert it into SAM field 'Xn'
-# Then we ask 'samtools fastq to preserve Xn field in the header
-# All this is to enable medaka_consensus to autodetect the right model for polishing
-rule qc2_host_filter_nanopore:
-    input:
-        ont       = rules.qc2_length_nanopore.output.ont,
-        hostindex = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ALIGNER_type)
-    output:
-        host_free = "{wd}/{omics}/4-hostfree/{sample}/{run}.nanopore.fq.gz",
-        summary   = "{wd}/{omics}/4-hostfree/{sample}/{run}.NANOPORE.trim.summary",
-    shadow:
-        "minimal"
-    log:
-        "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome_minimap2.log"
-    wildcard_constraints:
-        omics='metaG'
-    resources:
-        mem = lambda wildcards, input, attempt: 10 + int(1.2*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
-    threads:
-        ALIGNER_threads
-    params:
-        staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
-        final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0]))
-    conda:
-        minto_dir + "/envs/MIntO_base.yml" #minimap2, msamtools>=1.1.1, samtools, seqkit
-    shell:
-        """
-        # Stage index files locally if needed
-        # Set db_name accordingly
-        if [ "{params.staging}" == "yes" ]; then
-            source {minto_dir:q}/include/file_staging_functions.sh
-            stage_multiple_files_in {params.final_destination:q} {input.hostindex}
-            db_name={local_cache_dir:q}/{input.hostindex[0]}
-        else
-            db_name={input.hostindex[0]}
-        fi
-
-        time (
-                minimap2 -y -ax map-ont -t {threads} -v 3 $db_name {input.ont} \
-                  | sed "s/runid=/Xn:Z:runid=/" \
-                  | msamtools filter -S -l 300 --invert --keep_unmapped -bu - \
-                  | samtools fastq -T Xn - \
-                  | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
-                  | gzip -c \
-                  > hostfree.fq.gz
-                rsync -a hostfree.fq.gz {output.host_free}
-        ) >& {log}
-        """
-
 ########################################
+# Some useful functions
+########################################
+
 # Get list of fwd/rev reads for this sample.
 # These are names of files that don't exist yet, so no filecheck can be done.
 # Therefore get_final_fastq_one_end() cannot be used.
-########################################
 
 def get_postcleaning_fastq_names_one_end(wd, omics, sample, pair):
     if pair == 'nanopore':
@@ -571,100 +367,25 @@ def get_postcleaning_fastq_names_rev_only(wildcards):
 def get_postcleaning_fastq_names_nanopore(wildcards):
     return(get_postcleaning_fastq_names_one_end(wildcards.wd, wildcards.omics, wildcards.sample, pair='nanopore'))
 
-###############################################################################################
-# Pre-processing of metaT data - rRNA filtering - only on metaT data
-###############################################################################################
+# Get the individual reps for the sample
+# And concat all the files for each rep into one
+def get_rep_files_for_composite_sample(wildcards):
 
-if omics == 'metaT':
+    files = []
 
-    def get_rRNA_db_files(wildcards):
-        files = ["rfam-5.8s-database-id98.fasta",
-                "rfam-5s-database-id98.fasta",
-                "silva-arc-16s-id95.fasta",
-                "silva-arc-23s-id98.fasta",
-                "silva-bac-16s-id90.fasta",
-                "silva-bac-23s-id98.fasta",
-                "silva-euk-18s-id95.fasta",
-                "silva-euk-28s-id98.fasta"]
-        return(expand("{sortmeRNA_db}/{f}",
-                        sortmeRNA_db=sortmeRNA_db,
-                        f=files))
+    # Make a list of input samples to merge
+    if wildcards.pair == 'nanopore':
+        reps = [x.strip() for x in merged_nanopore_samples[wildcards.merged_sample].split('+')]
+        platform = 'NANOPORE'
+    else:
+        reps = [x.strip() for x in merged_illumina_samples[wildcards.merged_sample].split('+')]
+        platform = 'ILLUMINA'
 
-    rule qc2_filter_rRNA_index:
-        input:
-            rRNA_db=get_rRNA_db_files
-        output:
-            rRNA_db_index_file = "{sortmeRNA_db_idx}/rRNA_db_index.log".format(sortmeRNA_db_idx=sortmeRNA_db_idx),
-            rRNA_db_index = directory(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
-        shadow:
-            "minimal"
-        resources:
-            mem=sortmeRNA_memory
-        threads:
-            sortmeRNA_threads
-        log:
-            "{wd}/logs/{omics}/5-1-sortmerna/rRNA_index.log".format(wd=working_dir, omics = omics),
-        conda:
-            minto_dir + "/envs/MIntO_base.yml" #sortmerna
-        shell:
-            """
-            time (
-                sortmerna --workdir . --idx-dir ./idx/ -index 1 \
-                    --ref {input.rRNA_db[0]} \
-                    --ref {input.rRNA_db[1]} \
-                    --ref {input.rRNA_db[2]} \
-                    --ref {input.rRNA_db[3]} \
-                    --ref {input.rRNA_db[4]} \
-                    --ref {input.rRNA_db[5]} \
-                    --ref {input.rRNA_db[6]} \
-                    --ref {input.rRNA_db[7]}
-                rsync -a ./idx/* {output.rRNA_db_index}
-                echo 'SortMeRNA indexed rRNA_databases done' > {sortmeRNA_db_idx}/rRNA_db_index.log
-            ) >& {log}
-            """
+    # Find the final fq files for them
+    for x in reps:
+        files.extend(get_postcleaning_fastq_names_one_end(wd=wildcards.wd, omics=wildcards.omics, sample=x, pair=wildcards.pair))
 
-    rule qc2_filter_rRNA:
-        input:
-            host_free_fwd=rules.qc2_host_filter_illumina.output.host_free_fwd,
-            host_free_rev=rules.qc2_host_filter_illumina.output.host_free_rev,
-            rRNA_db_index=ancient(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
-        output:
-            rRNA_out="{wd}/{omics}/5-1-sortmerna/{sample}/out/{run}.aligned.log",
-            rRNA_free_fw="{wd}/{omics}/5-1-sortmerna/{sample}/{run}.1.fq.gz",
-            rRNA_free_rv="{wd}/{omics}/5-1-sortmerna/{sample}/{run}.2.fq.gz"
-        shadow:
-            "minimal"
-        params:
-            db_idx_dir=sortmeRNA_db_idx,
-            db_dir=sortmeRNA_db,
-        resources:
-            mem=sortmeRNA_memory
-        threads:
-            sortmeRNA_threads
-        log:
-            "{wd}/logs/{omics}/5-1-sortmerna/{sample}_{run}.log"
-        conda:
-            minto_dir + "/envs/MIntO_base.yml" #sortmerna
-        shell:
-            """
-            time (
-                sortmerna --paired_in --fastx --out2 --other --threads {threads} --no-best --num_alignments 1 --workdir . --idx-dir {params.db_idx_dir}/ \
-                            --ref {params.db_dir}/rfam-5.8s-database-id98.fasta \
-                            --ref {params.db_dir}/rfam-5s-database-id98.fasta \
-                            --ref {params.db_dir}/silva-arc-16s-id95.fasta \
-                            --ref {params.db_dir}/silva-arc-23s-id98.fasta \
-                            --ref {params.db_dir}/silva-bac-16s-id90.fasta \
-                            --ref {params.db_dir}/silva-bac-23s-id98.fasta \
-                            --ref {params.db_dir}/silva-euk-18s-id95.fasta \
-                            --ref {params.db_dir}/silva-euk-28s-id98.fasta \
-                            --reads {input.host_free_fwd} --reads {input.host_free_rev}
-                parallel --jobs {threads} <<__EOM__
-    rsync -a out/other_fwd.fq.gz {output.rRNA_free_fw}
-    rsync -a out/other_rev.fq.gz {output.rRNA_free_rv}
-    rsync -a out/aligned.log {output.rRNA_out}
-__EOM__
-            ) >& {log}
-            """
+    return(files)
 
 ###############################################################################################
 # Read-counts on min-length and clean reads
@@ -682,6 +403,8 @@ rule minlength_readcounts:
                 )
     output:
         minlen_rc=temp("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt")
+    wildcard_constraints:
+        tech='NANOPORE|ILLUMINA'
     resources:
         mem = 1
     threads:
@@ -715,11 +438,18 @@ rule minlength_readcounts:
         with open(output.minlen_rc, "w") as of:
             print(sum(run_readcounts), file = of)
 
-rule postcleaning_readcounts_illumina:
+###############################################################################################
+# Base rules common for both ILLUMINA/NANOPORE
+# Will be inherited later
+###############################################################################################
+
+rule postcleaning_readcounts_base:
     input:
-        fwd=get_postcleaning_fastq_names_fwd_only
+        reads = "{tech}"
     output:
-        rc_fwd=temp("{wd}/output/2-qc/{omics}.ILLUMINA.{sample}.postcleaning.txt")
+        readcount = temp("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt")
+    wildcard_constraints:
+        tech='NANOPORE|ILLUMINA'
     resources:
         mem = 1
     threads:
@@ -728,35 +458,21 @@ rule postcleaning_readcounts_illumina:
         minto_dir + "/envs/MIntO_base.yml"
     shell:
         """
-        LINENUM=`zcat {input.fwd} | wc -l`
-        echo $((${{LINENUM}} / 4)) > {output.rc_fwd}
+        LINENUM=`zcat {input.reads} | wc -l`
+        echo $((${{LINENUM}} / 4)) > {output.readcount}
         """
 
-use rule postcleaning_readcounts_illumina as postcleaning_readcounts_nanopore with:
-    input:
-        fwd=get_postcleaning_fastq_names_nanopore
-    output:
-        rc_fwd=temp("{wd}/output/2-qc/{omics}.NANOPORE.{sample}.postcleaning.txt")
-
-rule aggregate_readcounts_illumina:
+rule aggregate_readcounts_base:
     localrule: True
     input:
-        minlen_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt",
-                                                wd = wildcards.wd,
-                                                omics = wildcards.omics,
-                                                tech = wildcards.tech,
-                                                sample = nonredundant_ilmn_samples),
-        clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
-                                                wd = wildcards.wd,
-                                                omics = wildcards.omics,
-                                                tech = wildcards.tech,
-                                                sample = nonredundant_ilmn_samples)
+        minlen_rc = "{tech}",
+        clean_rc = "{tech}.not.possible"
     output:
-        rc="{wd}/output/2-qc/{omics}.{tech}.readcounts.txt"
+        rc = "{wd}/output/2-qc/{omics}.{tech}.readcounts.txt"
     params:
         samples = lambda wildcards: nonredundant_ilmn_samples if wildcards.tech == 'ILLUMINA' else nano_samples
     wildcard_constraints:
-        tech='ILLUMINA'
+        tech='NANOPORE|ILLUMINA'
     resources:
         mem = 1
     threads:
@@ -775,433 +491,769 @@ rule aggregate_readcounts_illumina:
             for row in readcounts:
                 print(row, file = fp)
 
-use rule aggregate_readcounts_illumina as aggregate_readcounts_nanopore with:
-    input:
-        minlen_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt",
-                                                wd = wildcards.wd,
-                                                omics = wildcards.omics,
-                                                tech = wildcards.tech,
-                                                sample = nano_samples),
-        clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
-                                                wd = wildcards.wd,
-                                                omics = wildcards.omics,
-                                                tech = wildcards.tech,
-                                                sample = nano_samples)
-    wildcard_constraints:
-        tech='NANOPORE'
-
 ###############################################################################################
-# Create pseudo-samples that are created by merging multiple samples.
-# E.g., for time-series data, we can create a composite sample with all time points
-#       and create profiles for this composite sample.
+# ILLUMINA-specific rules
 ###############################################################################################
 
-# Get the individual reps for the sample
-# And concat all the files for each rep into one
-def get_rep_files_for_composite_sample(wildcards):
+if len(ilmn_samples) > 0:
 
-    files = []
+    ###############################################################################################
+    # Read length filtering using MINLEN
+    ###############################################################################################
 
-    # Make a list of input samples to merge
-    if wildcards.pair == 'nanopore':
-        reps = [x.strip() for x in merged_nanopore_samples[wildcards.merged_sample].split('+')]
-        platform = 'NANOPORE'
-    else:
-        reps = [x.strip() for x in merged_illumina_samples[wildcards.merged_sample].split('+')]
-        platform = 'ILLUMINA'
-
-    # Find the final fq files for them
-    for x in reps:
-        files.extend(get_final_fastq_one_end(wildcards.wd, wildcards.omics, x, stage='QC_2', pair=wildcards.pair, seq_platform=platform))
-
-    return(files)
-
-if merged_illumina_samples:
-
-    ruleorder: merge_fastqs_for_composite_samples > qc2_host_filter_illumina
-
-    if omics == 'metaT':
-        ruleorder: merge_fastqs_for_composite_samples > qc2_filter_rRNA
-
-    # Merge files for a given sample from all its reps
-    # Restrict it to only those appearing in ILLUMINA_MERGE_SAMPLES dict in config file
-    rule merge_fastqs_for_composite_samples:
-        localrule: True
+    # We use suffix fq.gz for "seqkit seq" output even though it outputs unzipped fq.
+    # This is because the next step "seqkit pair" uses extension to decide whether to compress using pigz or not.
+    rule qc2_length_illumina:
         input:
-            fastq=get_rep_files_for_composite_sample
+            read_fw='{wd}/{omics}/1-trimmed/{sample}/{run}.1.fq.gz',
+            read_rv='{wd}/{omics}/1-trimmed/{sample}/{run}.2.fq.gz',
         output:
-            fastq="{wd}/{omics}/{location}/{merged_sample}/{merged_sample}.{pair}.fq.gz"
+            paired1=temp("{wd}/{omics}/3-minlength/{sample}/{run}.1.fq.gz"),
+            paired2=temp("{wd}/{omics}/3-minlength/{sample}/{run}.2.fq.gz"),
+            summary="{wd}/{omics}/3-minlength/{sample}/{run}.ILLUMINA.trim.summary"
         shadow:
             "minimal"
-        wildcard_constraints:
-            merged_sample = '|'.join(merged_illumina_samples.keys()),
-            location      = r'5-1-sortmerna|4-hostfree'
+        params:
+            read_length_cutoff = read_minlen_illumina
+        log:
+            "{wd}/logs/{omics}/3-minlength/illumina_{sample}_{run}.log"
+        resources:
+            mem=20
+        threads:
+            6
+        conda:
+            minto_dir + "/envs/MIntO_base.yml"
         shell:
             """
-            cat {input.fastq} > combined.fq.gz
-            rsync -a combined.fq.gz {output.fastq}
+            remote_dir=$(dirname {output.paired1})
+            time (
+                mkfifo {wildcards.run}.1.fq.gz
+                mkfifo {wildcards.run}.2.fq.gz
+                seqkit seq {input.read_fw} -m {params.read_length_cutoff} | seqkit replace -p '/1' -r '' > {wildcards.run}.1.fq.gz &
+                seqkit seq {input.read_rv} -m {params.read_length_cutoff} | seqkit replace -p '/2' -r '' > {wildcards.run}.2.fq.gz &
+                seqkit pair -1 {wildcards.run}.1.fq.gz -2 {wildcards.run}.2.fq.gz -O result -u >& {output.summary}
+                rsync -a result/{wildcards.run}.* $remote_dir/
+            ) >& {log}
             """
 
-if merged_nanopore_samples:
+    ###############################################################################################
+    # Remove host genome sequences
+    ###############################################################################################
 
-    ruleorder: merge_fastqs_for_composite_samples > qc2_host_filter_nanopore
+    # Remove potential host-derived reads based on genome in "{host_genome_path}/{host_genome_name}".
+    # Details of which index files are generated - in 'include/mapper_index_creation.smk'
 
-    if omics == 'metaT':
-        ruleorder: merge_fastqs_for_composite_samples > qc2_filter_rRNA
+    # BWA mem memory is estimated as 3.1 bytes per base in database (regression: mem = 5.556e+09 + 3.011*input).
 
-    # Merge files for a given sample from all its reps
-    # Restrict it to only those appearing in ILLUMINA_MERGE_SAMPLES dict in config file
-    rule merge_fastqs_for_composite_samples:
-        localrule: True
+    # For metaG, 4-hostfree is the final QC2 output.
+    # For metaT, it is not.
+    # Therefore, mark it as temp() only for metaT using rule inheritance with different wildcard_constraints.
+
+    # Function get_sba_mean_len() defined in mapper_index_creation.smk
+
+    rule qc2_sba_mean_length:
         input:
-            fastq=get_rep_files_for_composite_sample
+            readlen_file="{wd}/{omics}/1-trimmed/samples_read_length.txt"
         output:
-            fastq="{wd}/{omics}/{location}/{merged_sample}/{merged_sample}.{pair}.fq.gz"
+            meanlen_file="{wd}/output/2-qc/{omics}.mean_length.txt"
+        params:
+            read_length_cutoff=read_minlen_illumina
+        resources:
+            mem=2
+        threads: 2
+        run:
+            sba_mean_len = get_sba_mean_len(input.readlen_file)
+            with open(output.meanlen_file, "w") as fp:
+                print(sba_mean_len, file = fp)
+
+    # main rule: metaG - output is not temporary
+    rule qc2_host_filter_illumina:
+        input:
+            fasta      = f"{host_genome_path}/{host_genome_name}",
+            pairead_fw = rules.qc2_length_illumina.output.paired1,
+            pairead_rv = rules.qc2_length_illumina.output.paired2,
+            hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ILLUMINA_ALIGNER_type),
+            meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
+        output:
+            host_free_fw = "{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz",
+            host_free_rv = "{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz",
         shadow:
             "minimal"
+        log:
+            "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome.log"
         wildcard_constraints:
-            merged_sample = '|'.join(merged_nanopore_samples.keys()),
-            pair          = 'nanopore',
-            location      = r'5-1-sortmerna|4-hostfree'
+            omics='metaG'
+        resources:
+            mem = lambda wildcards, input, attempt: 10 + int(3.1*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
+        threads:
+            ILLUMINA_ALIGNER_threads
+        params:
+            staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+            final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0]))
+        conda:
+            minto_dir + "/envs/MIntO_base.yml" #bwa-mem2, msamtools>=1.1.1, samtools
         shell:
             """
-            cat {input.fastq} > combined.fq.gz
-            rsync -a combined.fq.gz {output.fastq}
+            remote_dir=$(dirname {output.host_free_fw:q})
+            # Stage index files locally if needed
+            # Set db_name accordingly
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir:q}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.hostindex} {input.fasta}
+                db_name={local_cache_dir:q}/{input.hostindex[0]}
+            else
+                db_name={input.hostindex[0]}
+            fi
+
+            # Remove the index file extension to get db_name argument and run aligner
+            if [[ "{ILLUMINA_ALIGNER_type:q}" == "bwa" ]]; then
+                db_name=${{db_name%.0123}}
+                time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                    | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
+                    | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
+                rsync -a * $remote_dir/
+                ) >& {log}
+            elif [[ "{ILLUMINA_ALIGNER_type:q}" == "strobealign" ]]; then
+                r_arg="$(cat {input.meanlen_txt})"
+                db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
+                time (strobealign --use-index -r $r_arg -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                    | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
+                    | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
+                rsync -a * $remote_dir/
+                ) >& {log}
+            else
+                echo "ERROR: No index for {ILLUMINA_ALIGNER_type}" > {log}
+            fi
             """
 
-###############################################################################################
-# Assembly-free taxonomy profiling
-###############################################################################################
+    # derived rule: metaT - output is temporary
+    use rule qc2_host_filter_illumina as qc2_host_filter_illumina_metaT with:
+        output:
+            host_free_fwd=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz"),
+            host_free_rev=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz"),
+        wildcard_constraints:
+            omics='metaT'
 
-# To enable multiple versions of taxonomy profiles for the same project, we include {version} in taxonomy profile output file name.
-# But changing '{sample}.{taxonomy}' to '{sample}.{taxonomy}.{version}' leads to trouble as metaphlan's combining script infers the
-# sample name by removing the word after the last dot. If we named files as 'D1.metaphlan.4.0.6', then the combined table lists this
-# sample as 'D1.metaphlan.4.0'. This disagrees with the sample metadata and difficult to recover. So we now add '.tsv' extension to
-# profile output, let metaphlan remove the '.tsv', and then remove '{taxonomy}.{version}' ourselves. This is the history behind
-# naming profile outputs as '{sample}.{taxonomy}.{version}.tsv'.
+    ###############################################################################################
+    # Pre-processing of metaT data - rRNA filtering - only on metaT data
+    ###############################################################################################
 
-rule metaphlan_tax_profile:
-    input:
-        metaphlan_db=lambda wildcards: expand("{minto_dir}/data/metaphlan/{version}/{metaphlan_index}_VINFO.csv",
-                                                minto_dir=minto_dir,
-                                                version=wildcards.version,
-                                                metaphlan_index=metaphlan_index),
-        fwd=get_postcleaning_fastq_names_fwd_only,
-        rev=get_postcleaning_fastq_names_rev_only,
-    output:
-        ra="{wd}/{omics}/6-taxa_profile/{sample}/{sample}.metaphlan.{version}.tsv"
-    shadow:
-        "minimal"
-    params:
-        input_files = lambda wildcards, input: ','.join(input.fwd + input.rev)
-    resources:
-        mem=TAXA_memory
-    threads:
-        TAXA_threads
-    log:
-        "{wd}/logs/{omics}/6-taxa_profile/{sample}.metaphlan.{version}.log"
-    conda:
-        minto_dir + "/envs/metaphlan.yml" #metaphlan
-    shell:
-        """
-        remote_dir=$(dirname {output.ra})
+    if omics == 'metaT':
 
-        time (
-            metaphlan {params.input_files} \
-                    --input_type fastq \
-                    --output_file {wildcards.sample}.metaphlan.{wildcards.version}.tsv \
-                    --mapout {wildcards.sample}.metaphlan.{wildcards.version}.bowtie2.bz2 \
-                    --db_dir {minto_dir}/data/metaphlan/{wildcards.version} \
-                    --index {metaphlan_index} \
-                    --nproc {threads} \
-                    -t rel_ab_w_read_stats
-            rsync -a {wildcards.sample}.metaphlan.* $remote_dir
-        ) >& {log}
-        """
+        def get_rRNA_db_files(wildcards):
+            files = ["rfam-5.8s-database-id98.fasta",
+                    "rfam-5s-database-id98.fasta",
+                    "silva-arc-16s-id95.fasta",
+                    "silva-arc-23s-id98.fasta",
+                    "silva-bac-16s-id90.fasta",
+                    "silva-bac-23s-id98.fasta",
+                    "silva-euk-18s-id95.fasta",
+                    "silva-euk-28s-id98.fasta"]
+            return(expand("{sortmeRNA_db}/{f}",
+                            sortmeRNA_db=sortmeRNA_db,
+                            f=files))
 
-rule metaphlan_combine_profiles:
-    localrule: True
-    input:
-        ra=lambda wildcards: expand("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.{taxonomy}.{version}.tsv", wd = wildcards.wd, omics = wildcards.omics, taxonomy = wildcards.taxonomy, version = wildcards.version, sample = nonredundant_ilmn_samples),
-    output:
-        merged="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table.txt",
-        species="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table_species.txt",
-    wildcard_constraints:
-        taxonomy = r'metaphlan'
-    threads: 1
-    log:
-        "{wd}/logs/{omics}/6-taxa_profile/{taxonomy}.{version}_combine.log"
-    conda:
-        minto_dir + "/envs/metaphlan.yml" #metaphlan
-    shell:
-        """
-        time (
-            merge_metaphlan_tables.py {input.ra} | sed -e 's/\.{wildcards.taxonomy}\.{wildcards.version}//g' -e 's/^UNCLASSIFIED/Unknown/' > {output.merged}
-            grep -E "s__|clade_name|Unknown" {output.merged} | grep -v "t__" | sed 's/^.*s__//' | sed 's/^clade_name/species/' > {output.species}
-        ) >& {log}
-        """
+        rule qc2_filter_rRNA_index:
+            input:
+                rRNA_db=get_rRNA_db_files
+            output:
+                rRNA_db_index_file = "{sortmeRNA_db_idx}/rRNA_db_index.log".format(sortmeRNA_db_idx=sortmeRNA_db_idx),
+                rRNA_db_index = directory(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
+            shadow:
+                "minimal"
+            resources:
+                mem=sortmeRNA_memory
+            threads:
+                sortmeRNA_threads
+            log:
+                "{wd}/logs/{omics}/5-1-sortmerna/rRNA_index.log".format(wd=working_dir, omics = omics),
+            conda:
+                minto_dir + "/envs/MIntO_base.yml" #sortmerna
+            shell:
+                """
+                time (
+                    sortmerna --workdir . --idx-dir ./idx/ -index 1 \
+                        --ref {input.rRNA_db[0]} \
+                        --ref {input.rRNA_db[1]} \
+                        --ref {input.rRNA_db[2]} \
+                        --ref {input.rRNA_db[3]} \
+                        --ref {input.rRNA_db[4]} \
+                        --ref {input.rRNA_db[5]} \
+                        --ref {input.rRNA_db[6]} \
+                        --ref {input.rRNA_db[7]}
+                    rsync -a ./idx/* {output.rRNA_db_index}
+                    echo 'SortMeRNA indexed rRNA_databases done' > {sortmeRNA_db_idx}/rRNA_db_index.log
+                ) >& {log}
+                """
 
-# motus can take in multiple runs as comma-separated files.
-# So we just construct it in {params}.
-rule motus_map_db:
-    input:
-        db = f"{minto_dir}/data/motus/{{version}}/db_mOTU/db_mOTU_versions",
-        fwd=get_postcleaning_fastq_names_fwd_only,
-        rev=get_postcleaning_fastq_names_rev_only
-    output:
-        mgc="{wd}/{omics}/6-taxa_profile/{sample}/{sample}.motus.{version}.mgc"
-    shadow:
-        "minimal"
-    params:
-        fwd_files = lambda wildcards, input: ",".join(input.fwd),
-        rev_files = lambda wildcards, input: ",".join(input.rev),
-        motus_db  = lambda wildcards, input: os.path.dirname(input.db)
-    resources:
-        mem=TAXA_memory
-    threads:
-        TAXA_threads
-    log:
-        "{wd}/logs/{omics}/6-taxa_profile/{sample}.motus.{version}.mgc.log"
-    conda:
-        minto_dir + "/envs/motus_env.yml" #motus3
-    shell:
-        """
-        time (
-            motus map_tax   -t {threads} -f {params.fwd_files} -r {params.rev_files} -db {params.motus_db} -o {wildcards.sample}.motus.bam -b
-            motus calc_mgc  -n {wildcards.sample}                                    -db {params.motus_db} -i {wildcards.sample}.motus.bam -o {wildcards.sample}.motus.mgc
-            rsync -a {wildcards.sample}.motus.mgc {output.mgc}
-        ) >& {log}
-        """
+        rule qc2_filter_rRNA:
+            input:
+                host_free_fwd=rules.qc2_host_filter_illumina.output.host_free_fwd,
+                host_free_rev=rules.qc2_host_filter_illumina.output.host_free_rev,
+                rRNA_db_index=ancient(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
+            output:
+                rRNA_out="{wd}/{omics}/5-1-sortmerna/{sample}/out/{run}.aligned.log",
+                rRNA_free_fw="{wd}/{omics}/5-1-sortmerna/{sample}/{run}.1.fq.gz",
+                rRNA_free_rv="{wd}/{omics}/5-1-sortmerna/{sample}/{run}.2.fq.gz"
+            shadow:
+                "minimal"
+            params:
+                db_idx_dir=sortmeRNA_db_idx,
+                db_dir=sortmeRNA_db,
+            resources:
+                mem=sortmeRNA_memory
+            threads:
+                sortmeRNA_threads
+            log:
+                "{wd}/logs/{omics}/5-1-sortmerna/{sample}_{run}.log"
+            conda:
+                minto_dir + "/envs/MIntO_base.yml" #sortmerna
+            shell:
+                """
+                time (
+                    sortmerna --paired_in --fastx --out2 --other --threads {threads} --no-best --num_alignments 1 --workdir . --idx-dir {params.db_idx_dir}/ \
+                                --ref {params.db_dir}/rfam-5.8s-database-id98.fasta \
+                                --ref {params.db_dir}/rfam-5s-database-id98.fasta \
+                                --ref {params.db_dir}/silva-arc-16s-id95.fasta \
+                                --ref {params.db_dir}/silva-arc-23s-id98.fasta \
+                                --ref {params.db_dir}/silva-bac-16s-id90.fasta \
+                                --ref {params.db_dir}/silva-bac-23s-id98.fasta \
+                                --ref {params.db_dir}/silva-euk-18s-id95.fasta \
+                                --ref {params.db_dir}/silva-euk-28s-id98.fasta \
+                                --reads {input.host_free_fwd} --reads {input.host_free_rev}
+                    parallel --jobs {threads} <<__EOM__
+        rsync -a out/other_fwd.fq.gz {output.rRNA_free_fw}
+        rsync -a out/other_rev.fq.gz {output.rRNA_free_rv}
+        rsync -a out/aligned.log {output.rRNA_out}
+    __EOM__
+                ) >& {log}
+                """
 
-rule motus_calc_motu:
-    localrule: True
-    input:
-        db = f"{minto_dir}/data/motus/{{version}}/db_mOTU/db_mOTU_versions",
-        mgc=rules.motus_map_db.output.mgc,
-    output:
-        raw=temp("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.motus_raw.{version}.tsv"),
-        rel=temp("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.motus_rel.{version}.tsv")
-    params:
-        motus_db = lambda wildcards, input: os.path.dirname(input.db)
-    resources:
-        mem=TAXA_memory
-    threads: 2
-    log:
-        "{wd}/logs/{omics}/6-taxa_profile/{sample}.motus.{version}.log"
-    conda:
-        minto_dir + "/envs/motus_env.yml" #motus3
-    shell:
-        """
-        time (
-            motus calc_motu -n {wildcards.sample} -db {params.motus_db} -i {input.mgc} -o {output.rel} -p -q
-            motus calc_motu -n {wildcards.sample} -db {params.motus_db} -i {input.mgc} -o {output.raw} -p -q -c
-        ) >& {log}
-        """
-
-rule motus_combine_profiles:
-    localrule: True
-    input:
-        db = f"{minto_dir}/data/motus/{{version}}/db_mOTU/db_mOTU_versions",
-        profiles=lambda wildcards: expand("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.{taxonomy}.{version}.tsv", wd = wildcards.wd, omics = wildcards.omics, taxonomy = wildcards.taxonomy, version = wildcards.version, sample = nonredundant_ilmn_samples),
-    output:
-        merged="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table.txt",
-        species="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table_species.txt",
-    wildcard_constraints:
-        taxonomy = r'motus_(raw|rel)'
-    params:
-        motus_db   = lambda wildcards, input: os.path.dirname(input.db),
-        cut_fields = '1,3-',
-        files      = lambda wildcards, input: ",".join(input.profiles)
-    threads: 1
-    log:
-        "{wd}/logs/{omics}/6-taxa_profile/{taxonomy}.{version}_combine.log"
-    conda:
-        minto_dir + "/envs/motus_env.yml" #motus3
-    shell:
-        """
-        time (
-            motus merge -db {params.motus_db} -i {params.files} | sed 's/^\(\S*\)\s\([^\\t]\+\)\\t/\\2 [\\1]\\t/' | sed -e 's/^consensus_taxonomy \[#mOTU\]/clade_name/' -e 's/NCBI_tax_id/clade_taxid/' -e 's/^unassigned .unassigned./Unknown/' | cut -f{params.cut_fields}  > {output.merged}
-            grep -E "s__|clade_name" {output.merged} | sed 's/^.*s__//' | sed 's/^clade_name/species/' > {output.species}
-        ) >& {log}
-        """
-
-rule plot_taxonomic_profile:
-    localrule: True
-    input:
-        merged="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table.txt",
-    output:
-        profile="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.tsv",
-        pcoa="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.PCoA.Bray_Curtis.pdf",
-        barplot="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.Top15genera.pdf",
-    wildcard_constraints:
-        taxonomy = r'motus_(raw|rel)|metaphlan'
-    params:
-        plot_args=plot_args_str
-    threads: 1
-    log:
-        "{wd}/logs/{omics}/6-taxa_profile/{taxonomy}.{version}_plot.log"
-    conda:
-        minto_dir + "/envs/r_pkgs.yml" #R
-    shell:
-        """
-        time (
-            Rscript {script_dir}/plot_6_taxa_profile.R --table {input.merged} --profiler {wildcards.omics}.{wildcards.taxonomy}.{wildcards.version} --metadata {metadata} --outdir $(dirname {output.pcoa}) {params.plot_args}
-        ) >& {log}
-        """
-
-###############################################################################################
-# Assembly-free sample comparison
-###############################################################################################
-
-# We are using sourmash to create weighted sketches from the host-free metaG fastq files.
-# If there are multiple runs for a sample, they will be included in the same sketch.
-
-if omics == 'metaG':
-    rule sourmash_sketch:
+    use rule postcleaning_readcounts_base as postcleaning_readcounts_illumina with:
         input:
+            reads=get_postcleaning_fastq_names_fwd_only
+        wildcard_constraints:
+            tech='ILLUMINA'
+
+    use rule aggregate_readcounts_base as aggregate_readcounts_illumina with:
+        input:
+            minlen_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt",
+                                                    wd = wildcards.wd,
+                                                    omics = wildcards.omics,
+                                                    tech = wildcards.tech,
+                                                    sample = nonredundant_ilmn_samples),
+            clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
+                                                    wd = wildcards.wd,
+                                                    omics = wildcards.omics,
+                                                    tech = wildcards.tech,
+                                                    sample = nonredundant_ilmn_samples)
+        wildcard_constraints:
+            tech='ILLUMINA'
+
+    ###############################################################################################
+    # Create pseudo-samples that are created by merging multiple samples.
+    # E.g., for time-series data, we can create a composite sample with all time points
+    #       and create profiles for this composite sample.
+    ###############################################################################################
+
+    if merged_illumina_samples:
+
+        ruleorder: merge_fastqs_for_composite_illumina_samples > qc2_host_filter_illumina
+
+        if omics == 'metaT':
+            ruleorder: merge_fastqs_for_composite_illumina_samples > qc2_filter_rRNA
+
+        # Merge files for a given sample from all its reps
+        # Restrict it to only those appearing in ILLUMINA_MERGE_SAMPLES dict in config file
+        rule merge_fastqs_for_composite_illumina_samples:
+            localrule: True
+            input:
+                fastq=get_rep_files_for_composite_sample
+            output:
+                fastq="{wd}/{omics}/{location}/{merged_sample}/{merged_sample}.{pair}.fq.gz"
+            shadow:
+                "minimal"
+            wildcard_constraints:
+                merged_sample = '|'.join(merged_illumina_samples.keys()),
+                location      = r'5-1-sortmerna|4-hostfree'
+            shell:
+                """
+                cat {input.fastq} > combined.fq.gz
+                rsync -a combined.fq.gz {output.fastq}
+                """
+
+    ###############################################################################################
+    # Assembly-free taxonomy profiling
+    ###############################################################################################
+
+    # To enable multiple versions of taxonomy profiles for the same project, we include {version} in taxonomy profile output file name.
+    # But changing '{sample}.{taxonomy}' to '{sample}.{taxonomy}.{version}' leads to trouble as metaphlan's combining script infers the
+    # sample name by removing the word after the last dot. If we named files as 'D1.metaphlan.4.0.6', then the combined table lists this
+    # sample as 'D1.metaphlan.4.0'. This disagrees with the sample metadata and difficult to recover. So we now add '.tsv' extension to
+    # profile output, let metaphlan remove the '.tsv', and then remove '{taxonomy}.{version}' ourselves. This is the history behind
+    # naming profile outputs as '{sample}.{taxonomy}.{version}.tsv'.
+
+    rule metaphlan_tax_profile:
+        input:
+            metaphlan_db=lambda wildcards: expand("{minto_dir}/data/metaphlan/{version}/{metaphlan_index}_VINFO.csv",
+                                                    minto_dir=minto_dir,
+                                                    version=wildcards.version,
+                                                    metaphlan_index=metaphlan_index),
             fwd=get_postcleaning_fastq_names_fwd_only,
             rev=get_postcleaning_fastq_names_rev_only,
         output:
-            temp("{wd}/{omics}/6-1a-smash/{sample}.sig.gz")
+            ra="{wd}/{omics}/6-taxa_profile/{sample}/{sample}.metaphlan.{version}.tsv"
         shadow:
             "minimal"
         params:
-            k=21,
-            scaled=100
+            input_files = lambda wildcards, input: ','.join(input.fwd + input.rev)
         resources:
             mem=TAXA_memory
-        threads:
-            2
-        log:
-            "{wd}/logs/{omics}/6-1-smash/{sample}.sourmash.sketch.log"
-        conda:
-            minto_dir + "/envs/MIntO_base.yml"
-        shell:
-            """
-            time (
-                sourmash sketch dna -p k={params.k},scaled={params.scaled},abund --name {wildcards.sample} -o {output} {input.fwd} {input.rev}
-            ) >& {log}
-            """
-
-    rule sourmash_filter:
-        input:
-            "{wd}/{omics}/6-1a-smash/{sample}.sig.gz"
-        output:
-            "{wd}/{omics}/6-1-smash/{sample}.sig.gz"
-        shadow:
-            "minimal"
-        params:
-            k=21,
-            m=sourmash_m,
-            M=sourmash_M
-        resources:
-            mem=TAXA_memory
-        threads:
-            2
-        log:
-            "{wd}/logs/{omics}/6-1-smash/{sample}.sourmash.filter.log"
-        conda:
-            minto_dir + "/envs/MIntO_base.yml"
-        shell:
-            """
-            time (
-                sourmash signature filter -k {params.k} -m {params.m} -M {params.M} -o {output} {input}
-            ) >& {log}
-            """
-
-    rule sourmash_filelist:
-        localrule: True
-        input:
-            expand("{wd}/{omics}/6-1-smash/{sample}.sig.gz",
-                    wd = working_dir,
-                    omics = omics,
-                    sample = nonredundant_ilmn_samples)
-        output:
-            temp("{wd}/{omics}/6-1-smash/{omics}.sourmash.lst")
-        resources:
-            mem=2
-        threads:
-            1
-        run:
-            with open(output[0], "w") as of:
-                for sigfile in input:
-                    print(sigfile, file = of)
-
-    rule sourmash_compare:
-        input:
-            flist=rules.sourmash_filelist.output,
-            files=expand("{wd}/{omics}/6-1-smash/{sample}.sig.gz",
-                    wd = working_dir,
-                    omics = omics,
-                    sample = nonredundant_ilmn_samples)
-        output:
-            csv="{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.csv",
-            npy="{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.npy"
-        shadow:
-            "minimal"
-        params:
-            k=21
-        resources:
-            mem=lambda wildcards, input: max(int(round(len(input.files)*0.2,0)), TAXA_memory)
         threads:
             TAXA_threads
         log:
-            "{wd}/logs/{omics}/6-1-smash/{omics}.sourmash.compare.log"
+            "{wd}/logs/{omics}/6-taxa_profile/{sample}.metaphlan.{version}.log"
         conda:
-            minto_dir + "/envs/MIntO_base.yml"
+            minto_dir + "/envs/metaphlan.yml" #metaphlan
         shell:
             """
+            remote_dir=$(dirname {output.ra})
+
             time (
-                sourmash compare -k {params.k} -p {threads} --csv {output.csv} -o {output.npy} --from-file {input.flist}
+                metaphlan {params.input_files} \
+                        --input_type fastq \
+                        --output_file {wildcards.sample}.metaphlan.{wildcards.version}.tsv \
+                        --mapout {wildcards.sample}.metaphlan.{wildcards.version}.bowtie2.bz2 \
+                        --db_dir {minto_dir}/data/metaphlan/{wildcards.version} \
+                        --index {metaphlan_index} \
+                        --nproc {threads} \
+                        -t rel_ab_w_read_stats
+                rsync -a {wildcards.sample}.metaphlan.* $remote_dir
             ) >& {log}
             """
 
-    rule plot_sourmash_kmers:
+    rule metaphlan_combine_profiles:
         localrule: True
         input:
-            csv = expand("{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.csv",
-                    wd = working_dir,
-                    omics = omics),
-            npy = expand("{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.npy",
-                    wd = working_dir,
-                    omics = omics),
-            merged = "{wd}/output/6-taxa_profile/{omics}.{taxonomy_versioned}.merged_abundance_table.txt",
+            ra=lambda wildcards: expand("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.{taxonomy}.{version}.tsv", wd = wildcards.wd, omics = wildcards.omics, taxonomy = wildcards.taxonomy, version = wildcards.version, sample = nonredundant_ilmn_samples),
         output:
-            barplot="{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.clusters.pdf",
-            tsv="{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.sourmash_clusters.tsv"
+            merged="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table.txt",
+            species="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table_species.txt",
         wildcard_constraints:
-            omics = r'metaG|metaT'
-        params:
-            cutoff=sourmash_cutoff,
-            plot_args=plot_args_str
-        threads:
-            1
+            taxonomy = r'metaphlan'
+        threads: 1
         log:
-            "{wd}/logs/{omics}/6-1-smash/{omics}.{taxonomy_versioned}.sourmash.plot.log"
+            "{wd}/logs/{omics}/6-taxa_profile/{taxonomy}.{version}_combine.log"
+        conda:
+            minto_dir + "/envs/metaphlan.yml" #metaphlan
+        shell:
+            """
+            time (
+                merge_metaphlan_tables.py {input.ra} | sed -e 's/\.{wildcards.taxonomy}\.{wildcards.version}//g' -e 's/^UNCLASSIFIED/Unknown/' > {output.merged}
+                grep -E "s__|clade_name|Unknown" {output.merged} | grep -v "t__" | sed 's/^.*s__//' | sed 's/^clade_name/species/' > {output.species}
+            ) >& {log}
+            """
+
+    # motus can take in multiple runs as comma-separated files.
+    # So we just construct it in {params}.
+    rule motus_map_db:
+        input:
+            db = f"{minto_dir}/data/motus/{{version}}/db_mOTU/db_mOTU_versions",
+            fwd=get_postcleaning_fastq_names_fwd_only,
+            rev=get_postcleaning_fastq_names_rev_only
+        output:
+            mgc="{wd}/{omics}/6-taxa_profile/{sample}/{sample}.motus.{version}.mgc"
+        shadow:
+            "minimal"
+        params:
+            fwd_files = lambda wildcards, input: ",".join(input.fwd),
+            rev_files = lambda wildcards, input: ",".join(input.rev),
+            motus_db  = lambda wildcards, input: os.path.dirname(input.db)
+        resources:
+            mem=TAXA_memory
+        threads:
+            TAXA_threads
+        log:
+            "{wd}/logs/{omics}/6-taxa_profile/{sample}.motus.{version}.mgc.log"
+        conda:
+            minto_dir + "/envs/motus_env.yml" #motus3
+        shell:
+            """
+            time (
+                motus map_tax   -t {threads} -f {params.fwd_files} -r {params.rev_files} -db {params.motus_db} -o {wildcards.sample}.motus.bam -b
+                motus calc_mgc  -n {wildcards.sample}                                    -db {params.motus_db} -i {wildcards.sample}.motus.bam -o {wildcards.sample}.motus.mgc
+                rsync -a {wildcards.sample}.motus.mgc {output.mgc}
+            ) >& {log}
+            """
+
+    rule motus_calc_motu:
+        localrule: True
+        input:
+            db = f"{minto_dir}/data/motus/{{version}}/db_mOTU/db_mOTU_versions",
+            mgc=rules.motus_map_db.output.mgc,
+        output:
+            raw=temp("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.motus_raw.{version}.tsv"),
+            rel=temp("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.motus_rel.{version}.tsv")
+        params:
+            motus_db = lambda wildcards, input: os.path.dirname(input.db)
+        resources:
+            mem=TAXA_memory
+        threads: 2
+        log:
+            "{wd}/logs/{omics}/6-taxa_profile/{sample}.motus.{version}.log"
+        conda:
+            minto_dir + "/envs/motus_env.yml" #motus3
+        shell:
+            """
+            time (
+                motus calc_motu -n {wildcards.sample} -db {params.motus_db} -i {input.mgc} -o {output.rel} -p -q
+                motus calc_motu -n {wildcards.sample} -db {params.motus_db} -i {input.mgc} -o {output.raw} -p -q -c
+            ) >& {log}
+            """
+
+    rule motus_combine_profiles:
+        localrule: True
+        input:
+            db = f"{minto_dir}/data/motus/{{version}}/db_mOTU/db_mOTU_versions",
+            profiles=lambda wildcards: expand("{wd}/{omics}/6-taxa_profile/{sample}/{sample}.{taxonomy}.{version}.tsv", wd = wildcards.wd, omics = wildcards.omics, taxonomy = wildcards.taxonomy, version = wildcards.version, sample = nonredundant_ilmn_samples),
+        output:
+            merged="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table.txt",
+            species="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table_species.txt",
+        wildcard_constraints:
+            taxonomy = r'motus_(raw|rel)'
+        params:
+            motus_db   = lambda wildcards, input: os.path.dirname(input.db),
+            cut_fields = '1,3-',
+            files      = lambda wildcards, input: ",".join(input.profiles)
+        threads: 1
+        log:
+            "{wd}/logs/{omics}/6-taxa_profile/{taxonomy}.{version}_combine.log"
+        conda:
+            minto_dir + "/envs/motus_env.yml" #motus3
+        shell:
+            """
+            time (
+                motus merge -db {params.motus_db} -i {params.files} | sed 's/^\(\S*\)\s\([^\\t]\+\)\\t/\\2 [\\1]\\t/' | sed -e 's/^consensus_taxonomy \[#mOTU\]/clade_name/' -e 's/NCBI_tax_id/clade_taxid/' -e 's/^unassigned .unassigned./Unknown/' | cut -f{params.cut_fields}  > {output.merged}
+                grep -E "s__|clade_name" {output.merged} | sed 's/^.*s__//' | sed 's/^clade_name/species/' > {output.species}
+            ) >& {log}
+            """
+
+    rule plot_taxonomic_profile:
+        localrule: True
+        input:
+            merged="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.merged_abundance_table.txt",
+        output:
+            profile="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.tsv",
+            pcoa="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.PCoA.Bray_Curtis.pdf",
+            barplot="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.Top15genera.pdf",
+        wildcard_constraints:
+            taxonomy = r'motus_(raw|rel)|metaphlan'
+        params:
+            plot_args=plot_args_str
+        threads: 1
+        log:
+            "{wd}/logs/{omics}/6-taxa_profile/{taxonomy}.{version}_plot.log"
         conda:
             minto_dir + "/envs/r_pkgs.yml" #R
         shell:
             """
             time (
-                Rscript {script_dir}/plot_6-1_sourmash.R --csv {input.csv} --cutoff {params.cutoff} --table {input.merged} --metadata {metadata} --outdir $(dirname {output.barplot}) {params.plot_args}
+                Rscript {script_dir}/plot_6_taxa_profile.R --table {input.merged} --profiler {wildcards.omics}.{wildcards.taxonomy}.{wildcards.version} --metadata {metadata} --outdir $(dirname {output.pcoa}) {params.plot_args}
             ) >& {log}
             """
 
-    rule dummy_sourmash_clusters:
-        localrule: True
+    ###############################################################################################
+    # Assembly-free sample comparison
+    ###############################################################################################
+
+    # We are using sourmash to create weighted sketches from the host-free metaG ILLUMINA fastq files.
+    # If there are multiple runs for a sample, they will be included in the same sketch.
+
+    if omics == 'metaG':
+        rule sourmash_sketch:
+            input:
+                fwd=get_postcleaning_fastq_names_fwd_only,
+                rev=get_postcleaning_fastq_names_rev_only,
+            output:
+                temp("{wd}/{omics}/6-1a-smash/{sample}.sig.gz")
+            shadow:
+                "minimal"
+            params:
+                k=21,
+                scaled=100
+            resources:
+                mem=TAXA_memory
+            threads:
+                2
+            log:
+                "{wd}/logs/{omics}/6-1-smash/{sample}.sourmash.sketch.log"
+            conda:
+                minto_dir + "/envs/MIntO_base.yml"
+            shell:
+                """
+                time (
+                    sourmash sketch dna -p k={params.k},scaled={params.scaled},abund --name {wildcards.sample} -o {output} {input.fwd} {input.rev}
+                ) >& {log}
+                """
+
+        rule sourmash_filter:
+            input:
+                "{wd}/{omics}/6-1a-smash/{sample}.sig.gz"
+            output:
+                "{wd}/{omics}/6-1-smash/{sample}.sig.gz"
+            shadow:
+                "minimal"
+            params:
+                k=21,
+                m=sourmash_m,
+                M=sourmash_M
+            resources:
+                mem=TAXA_memory
+            threads:
+                2
+            log:
+                "{wd}/logs/{omics}/6-1-smash/{sample}.sourmash.filter.log"
+            conda:
+                minto_dir + "/envs/MIntO_base.yml"
+            shell:
+                """
+                time (
+                    sourmash signature filter -k {params.k} -m {params.m} -M {params.M} -o {output} {input}
+                ) >& {log}
+                """
+
+        rule sourmash_filelist:
+            localrule: True
+            input:
+                expand("{wd}/{omics}/6-1-smash/{sample}.sig.gz",
+                        wd = working_dir,
+                        omics = omics,
+                        sample = nonredundant_ilmn_samples)
+            output:
+                temp("{wd}/{omics}/6-1-smash/{omics}.sourmash.lst")
+            resources:
+                mem=2
+            threads:
+                1
+            run:
+                with open(output[0], "w") as of:
+                    for sigfile in input:
+                        print(sigfile, file = of)
+
+        rule sourmash_compare:
+            input:
+                flist=rules.sourmash_filelist.output,
+                files=expand("{wd}/{omics}/6-1-smash/{sample}.sig.gz",
+                        wd = working_dir,
+                        omics = omics,
+                        sample = nonredundant_ilmn_samples)
+            output:
+                csv="{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.csv",
+                npy="{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.npy"
+            shadow:
+                "minimal"
+            params:
+                k=21
+            resources:
+                mem=lambda wildcards, input: max(int(round(len(input.files)*0.2,0)), TAXA_memory)
+            threads:
+                TAXA_threads
+            log:
+                "{wd}/logs/{omics}/6-1-smash/{omics}.sourmash.compare.log"
+            conda:
+                minto_dir + "/envs/MIntO_base.yml"
+            shell:
+                """
+                time (
+                    sourmash compare -k {params.k} -p {threads} --csv {output.csv} -o {output.npy} --from-file {input.flist}
+                ) >& {log}
+                """
+
+        rule plot_sourmash_kmers:
+            localrule: True
+            input:
+                csv = expand("{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.csv",
+                        wd = working_dir,
+                        omics = omics),
+                npy = expand("{wd}/{omics}/6-1-smash/{omics}.sourmash_cosine_similarity.npy",
+                        wd = working_dir,
+                        omics = omics),
+                merged = "{wd}/output/6-taxa_profile/{omics}.{taxonomy_versioned}.merged_abundance_table.txt",
+            output:
+                barplot="{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.clusters.pdf",
+                tsv="{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.sourmash_clusters.tsv"
+            wildcard_constraints:
+                omics = r'metaG|metaT'
+            params:
+                cutoff=sourmash_cutoff,
+                plot_args=plot_args_str
+            threads:
+                1
+            log:
+                "{wd}/logs/{omics}/6-1-smash/{omics}.{taxonomy_versioned}.sourmash.plot.log"
+            conda:
+                minto_dir + "/envs/r_pkgs.yml" #R
+            shell:
+                """
+                time (
+                    Rscript {script_dir}/plot_6-1_sourmash.R --csv {input.csv} --cutoff {params.cutoff} --table {input.merged} --metadata {metadata} --outdir $(dirname {output.barplot}) {params.plot_args}
+                ) >& {log}
+                """
+
+        rule dummy_sourmash_clusters:
+            localrule: True
+            input:
+                "{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.sourmash_clusters.tsv".format(
+                                wd = working_dir,
+                                omics = omics,
+                                taxonomy_versioned = taxonomies_versioned[0])
+            output:
+                "{wd}/output/6-1-smash/{omics}.sourmash_clusters.tsv"
+            threads:
+                1
+            shell:
+                """
+                mv {input} {output}
+                """
+
+###############################################################################################
+# NANOPORE-specific rules
+###############################################################################################
+
+if len(nano_samples) > 0:
+
+    ###############################################################################################
+    # Read length filtering using MINLEN
+    ###############################################################################################
+
+    rule qc2_length_nanopore:
         input:
-            "{wd}/output/6-1-smash/{omics}.{taxonomy_versioned}.sourmash_clusters.tsv".format(
-                            wd = working_dir,
-                            omics = omics,
-                            taxonomy_versioned = taxonomies_versioned[0])
+            ont="{wd}/{omics}/1-trimmed/{sample}/{run}.nanopore.fq.gz",
         output:
-            "{wd}/output/6-1-smash/{omics}.sourmash_clusters.tsv"
+            ont="{wd}/{omics}/3-minlength/{sample}/{run}.nanopore.fq.gz",
+            summary="{wd}/{omics}/3-minlength/{sample}/{run}.NANOPORE.trim.summary"
+        shadow:
+            "minimal"
+        params:
+            read_length_cutoff = read_minlen_nanopore
+        log:
+            "{wd}/logs/{omics}/3-minlength/nanopore_{sample}_{run}.log"
+        resources:
+            mem=20
         threads:
-            1
+            2
+        conda:
+            minto_dir + "/envs/MIntO_base.yml"
         shell:
             """
-            mv {input} {output}
+            time (
+                fastplong --disable_quality_filtering --disable_adapter_trimming --length_required {params.read_length_cutoff} --in {input.ont} --stdout \
+                        | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
+                        | gzip > filt.fq.gz
+                rsync filt.fq.gz {output.ont}
+            ) >& {log}
             """
+
+    use rule postcleaning_readcounts_base as postcleaning_readcounts_nanopore with:
+        input:
+            reads=get_postcleaning_fastq_names_nanopore
+        wildcard_constraints:
+            tech='NANOPORE'
+
+    use rule aggregate_readcounts_base as aggregate_readcounts_nanopore with:
+        input:
+            minlen_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.minlength.txt",
+                                                    wd = wildcards.wd,
+                                                    omics = wildcards.omics,
+                                                    tech = wildcards.tech,
+                                                    sample = nano_samples),
+            clean_rc = lambda wildcards: expand("{wd}/output/2-qc/{omics}.{tech}.{sample}.postcleaning.txt",
+                                                    wd = wildcards.wd,
+                                                    omics = wildcards.omics,
+                                                    tech = wildcards.tech,
+                                                    sample = nano_samples)
+        wildcard_constraints:
+            tech='NANOPORE'
+
+    ###############################################################################################
+    # Remove host genome sequences
+    ###############################################################################################
+
+    # minimap2 mem memory is estimated as 1.2 bytes per base in database (quick check with ONT files).
+    # minimap2 will write the comments in the fastq header if given '-y' argument
+    # But this will be a comment in the 12th field
+    # If ONT data has annotation about the technology using "runid=.*" format, we convert it into SAM field 'Xn'
+    # Then we ask 'samtools fastq to preserve Xn field in the header
+    # All this is to enable medaka_consensus to autodetect the right model for polishing
+    rule qc2_host_filter_nanopore:
+        input:
+            ont       = rules.qc2_length_nanopore.output.ont,
+            hostindex = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", NANOPORE_ALIGNER_type)
+        output:
+            host_free = "{wd}/{omics}/4-hostfree/{sample}/{run}.nanopore.fq.gz",
+            summary   = "{wd}/{omics}/4-hostfree/{sample}/{run}.NANOPORE.trim.summary",
+        shadow:
+            "minimal"
+        log:
+            "{wd}/logs/{omics}/4-hostfree/{sample}_{run}_filter_host_genome_minimap2.log"
+        wildcard_constraints:
+            omics='metaG'
+        resources:
+            mem = lambda wildcards, input, attempt: 10 + int(1.2*get_file_size_gb(input.hostindex[0])) + 10*(attempt-1)
+        threads:
+            NANOPORE_ALIGNER_threads
+        params:
+            staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
+            final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.hostindex[0]))
+        conda:
+            minto_dir + "/envs/MIntO_base.yml" #minimap2, msamtools>=1.1.1, samtools, seqkit
+        shell:
+            """
+            # Stage index files locally if needed
+            # Set db_name accordingly
+            if [ "{params.staging}" == "yes" ]; then
+                source {minto_dir:q}/include/file_staging_functions.sh
+                stage_multiple_files_in {params.final_destination:q} {input.hostindex}
+                db_name={local_cache_dir:q}/{input.hostindex[0]}
+            else
+                db_name={input.hostindex[0]}
+            fi
+
+            time (
+                    minimap2 -y -ax map-ont -t {threads} -v 3 $db_name {input.ont} \
+                      | sed "s/runid=/Xn:Z:runid=/" \
+                      | msamtools filter -S -l 300 --invert --keep_unmapped -bu - \
+                      | samtools fastq -T Xn - \
+                      | tee >(seqkit stats --tabular --all -i {wildcards.run} - > {output.summary}) \
+                      | gzip -c \
+                      > hostfree.fq.gz
+                    rsync -a hostfree.fq.gz {output.host_free}
+            ) >& {log}
+            """
+
+    if merged_nanopore_samples:
+
+        ruleorder: merge_fastqs_for_composite_nanopore_samples > qc2_host_filter_nanopore
+
+        # Merge files for a given sample from all its reps
+        # Restrict it to only those appearing in NANOPORE_MERGE_SAMPLES dict in config file
+        rule merge_fastqs_for_composite_nanopore_samples:
+            localrule: True
+            input:
+                fastq=get_rep_files_for_composite_sample
+            output:
+                fastq="{wd}/{omics}/{location}/{merged_sample}/{merged_sample}.{pair}.fq.gz"
+            shadow:
+                "minimal"
+            wildcard_constraints:
+                merged_sample = '|'.join(merged_nanopore_samples.keys()),
+                pair          = 'nanopore',
+                location      = '4-hostfree'
+            shell:
+                """
+                cat {input.fastq} > combined.fq.gz
+                rsync -a combined.fq.gz {output.fastq}
+                """
 
 ##########################################################################################################
 # Generate configuration yml file for recovery of MAGs and taxonomic annotation step - assembly/coassembly
@@ -1237,108 +1289,6 @@ working_dir: {wildcards.wd}
 omics: {wildcards.omics}
 minto_dir: {minto_dir}
 METADATA: {input.metadata}
-
-######################
-# Analysis settings
-######################
-
-MAIN_factor: {main_factor}
-
-######################
-# Assembler settings
-######################
-# MetaSPAdes settings
-#
-METASPADES_qoffset: auto
-METASPADES_threads: 16
-METASPADES_hybrid_max_k: 99
-METASPADES_illumina_max_k: 99
-
-# MEGAHIT settings
-#
-# Note on MEGAHIT_memory:
-#     MEGAHIT's memory requirement scales with sample count and sample size.
-#     Default MEGAHIT_memory below is 10 Gigabytes per sample (plenty for metaG samples of 10M reads).
-#     MEGAHIT_memory parameter represents per-sample memory in Gigabytes
-#     during the first attempt. If it is not enough and MEGAHIT fails, then
-#     each successive attempt will increase per-sample memory by 6 Gibabytes
-#     until it succeeds or reaches max_attempts from snakemake.
-#     Please make sure that there is enough RAM on the server.
-# Custom k-list for assembly: k must be odd, in the range 15-255, increment <= 28, fx. 21,29,39,59,79,99,119,141
-MEGAHIT_memory: 10
-MEGAHIT_threads: 32
-MEGAHIT_presets:
- - meta-sensitive
- - meta-large
-#MEGAHIT_custom:
-# - 21,29,39,59,79,99,119,141
-
-# MetaFlye settings
-#
-# MetaFlye will be run for each parameter preset listed here.
-# If you list an empty string "", default MetaFlye will be run using this parameter:
-#    --meta
-# If you need to add more options, define them here and name them for future reference.
-# Notes:
-# ------
-# 1. Nanopore input is considered to be > 10.4.1, so --nano-hq will be used.
-# 2. Each preset parameter will be applied to each sample. If you only
-#    want one parameter to be used, please comment everything else.
-# 3. If nothing is listed here, then MetaFlye won't be run.
-#    If you just want our default parameters above, then here is a possible option:
-#      metaflye-default: ""
-# 4. Potential options to consider are: --scaffold, --iterations
-METAFLYE_presets:
-  metaflye-default: ""
-
-# medaka_consensus will be run with '--bacteria' argument.
-# It will choose 'r1041_e82_400bps_bacterial_methylation' if compatible or the default model name otherwise.
-# What should you do?
-# 1. You do not have R10 chemistry or newer: leave it as 'None'
-# 2. You have R10 chemistry or newer, and fastq headers are preserved: use '--bacteria'
-# 3. You have R10 chemistry or newer, but fastq headers are lost: use '--bacteria -m r1041_e82_400bps_bacterial_methylation'
-MEDAKA_INFERENCE_MODEL: --bacteria
-
-###############################
-# Binning preparation settings
-###############################
-
-# Whether to use contigs or scaffolds from SPAdes
-METASPADES_CONTIGS_OR_SCAFFOLDS: contigs
-
-# minimum contig/scaffold fasta length
-MIN_FASTA_LENGTH: 2500
-
-# maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
-MAX_RAM_GB_PER_JOB: 180
-
-# Should we exclude any assembly type during MAG generation?
-# E.g., if you make MAGs from metaT, individual sample assemblies
-# will be quite fragmented. If you have several co-assemblies, then
-# ignoring 'illumina_single' might improve your MAG quality. This can
-# be achieved using:
-# ---
-# EXCLUDE_ASSEMBLY_TYPES:
-#     - illumina_single
-# ---
-#
-# EXCLUDE_ASSEMBLY_TYPES:
-
-# binning_prep settings
-# Used when mapping reads back to contigs
-
-# Which aligner or mapper to use: 'bwa' or 'strobealign'
-ALIGNER_type: strobealign
-ALIGNER_threads: 10
-
-# samtools sort settings when using 'bwa' for mapping
-# Used when sorting bam files using 3 threads
-# Memory listed below is PER-THREAD, so please make sure you have enough
-SAMTOOLS_sort_perthread_memgb: 10
-
-# Should I cache contig DB in each node for subsequent jobs to reuse?
-# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
-LOCAL_DATABASE_CACHE_DIR: None
 
 ###############################
 # Input data
@@ -1379,8 +1329,8 @@ rule assembly_config_illumina:
     output:
         config_file=temp("{wd}/{omics}/assembly.yaml.illumina")
     params:
-        sample_list = nonredundant_ilmn_samples,
-        sample_string = ', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
+        illumina_samples_yaml='\n'.join(["- '{}'".format(i) for i in nonredundant_ilmn_samples]),
+        illumina_samples_plus_delimited_string = '+'.join(["{}".format(i) for i in nonredundant_ilmn_samples]),
         merge_illumina_samples_directive = '\n'.join([" {} : {}".format(i, merged_illumina_samples[i]) for i in merged_illumina_samples.keys()])
     resources:
         mem=2
@@ -1392,6 +1342,41 @@ rule assembly_config_illumina:
     shell:
         """
         cat > {output} <<___EOF___
+
+######################
+# Analysis settings
+######################
+
+MAIN_factor: {main_factor}
+
+######################
+# Assembler settings
+######################
+# MetaSPAdes settings
+#
+METASPADES_qoffset: auto
+METASPADES_threads: 16
+METASPADES_hybrid_max_k: 99
+METASPADES_illumina_max_k: 99
+
+# MEGAHIT settings
+#
+# Note on MEGAHIT_memory:
+#     MEGAHIT's memory requirement scales with sample count and sample size.
+#     Default MEGAHIT_memory below is 10 Gigabytes per sample (plenty for metaG samples of 10M reads).
+#     MEGAHIT_memory parameter represents per-sample memory in Gigabytes
+#     during the first attempt. If it is not enough and MEGAHIT fails, then
+#     each successive attempt will increase per-sample memory by 6 Gibabytes
+#     until it succeeds or reaches max_attempts from snakemake.
+#     Please make sure that there is enough RAM on the server.
+# Custom k-list for assembly: k must be odd, in the range 15-255, increment <= 28, fx. 21,29,39,59,79,99,119,141
+MEGAHIT_memory: 10
+MEGAHIT_threads: 32
+MEGAHIT_presets:
+ - meta-sensitive
+ - meta-large
+#MEGAHIT_custom:
+# - 21,29,39,59,79,99,119,141
 
 ######################
 # Optionally, if you want to merge replicates or make pseudo samples
@@ -1429,7 +1414,7 @@ ILLUMINA_MERGE_SAMPLES:
 # - I2
 #
 ILLUMINA_SAMPLES:
-$(for i in {params.sample_list}; do echo "- '$i'"; done)
+{params.illumina_samples_yaml}
 
 ###############################
 # ILLUMINA COASSEMBLY section:
@@ -1444,7 +1429,7 @@ $(for i in {params.sample_list}; do echo "- '$i'"; done)
 #
 enable_ILLUMINA_COASSEMBLY: no
 ILLUMINA_COASSEMBLY:
-  'Full': $(echo {params.sample_list} | sed 's/ /+/g')
+  'Full': {params.illumina_samples_plus_delimited_string}
 ___EOF___
 
         R --vanilla --silent --no-echo >> {output} <<___EOF___
@@ -1478,19 +1463,18 @@ write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, se
 ___EOF___
 fi
 
-        echo {params.sample_list} >& {log}
+        echo {params.illumina_samples_plus_delimited_string} >& {log}
         """
 
 rule assembly_config_nanopore:
     localrule: True
     input:
         metadata=metadata,
-        table=get_qc2_assembly_config_table
     output:
         config_file=temp("{wd}/{omics}/assembly.yaml.nanopore")
     params:
-        sample_list = nonredundant_nano_samples,
-        sample_string = ', '.join(["'{}'".format(i) for i in nonredundant_nano_samples]),
+        nanopore_samples_yaml='\n'.join(["- '{}'".format(i) for i in nonredundant_nano_samples]),
+        nanopore_samples_string = ', '.join(["'{}'".format(i) for i in nonredundant_nano_samples]),
         merge_nanopore_samples_directive = '\n'.join([" {} : {}".format(i, merged_nanopore_samples[i]) for i in merged_nanopore_samples.keys()])
     resources:
         mem=2
@@ -1502,6 +1486,36 @@ rule assembly_config_nanopore:
     shell:
         """
         cat > {output} <<___EOF___
+
+######################
+# Assembler settings
+######################
+
+# MetaFlye settings
+#
+# MetaFlye will be run for each parameter preset listed here.
+# If you list an empty string "", default MetaFlye will be run using this parameter:
+#    --meta
+# If you need to add more options, define them here and name them for future reference.
+# Notes:
+# ------
+# 1. Nanopore input is considered to be > 10.4.1, so --nano-hq will be used.
+# 2. Each preset parameter will be applied to each sample. If you only
+#    want one parameter to be used, please comment everything else.
+# 3. If nothing is listed here, then MetaFlye won't be run.
+#    If you just want our default parameters above, then here is a possible option:
+#      metaflye-default: ""
+# 4. Potential options to consider are: --scaffold, --iterations
+METAFLYE_presets:
+  metaflye-default: ""
+
+# medaka_consensus will be run with '--bacteria' argument.
+# It will choose 'r1041_e82_400bps_bacterial_methylation' if compatible or the default model name otherwise.
+# What should you do?
+# 1. You do not have R10 chemistry or newer: leave it as 'None'
+# 2. You have R10 chemistry or newer, and fastq headers are preserved: use '--bacteria'
+# 3. You have R10 chemistry or newer, but fastq headers are lost: use '--bacteria -m r1041_e82_400bps_bacterial_methylation'
+MEDAKA_INFERENCE_MODEL: --bacteria
 
 ######################
 # Optionally, if you want to merge replicates or make pseudo samples
@@ -1539,56 +1553,72 @@ NANOPORE_MERGE_SAMPLES:
 # - I2
 #
 NANOPORE_SAMPLES:
-$(for i in {params.sample_list}; do echo "- '$i'"; done)
+{params.nanopore_samples_yaml}
+___EOF___
+
+        echo {params.nanopore_samples_string} >& {log}
+        """
+
+rule assembly_config_binning:
+    localrule: True
+    input:
+        metadata=metadata
+    output:
+        config_file=temp("{wd}/{omics}/assembly.yaml.binning")
+    resources:
+        mem=2
+    threads: 2
+    log:
+        "{wd}/logs/{omics}/config_yml_assembly.core.log"
+    shell:
+        """
+        cat > {output} <<___EOF___
 
 ###############################
-# NANOPORE COASSEMBLY section:
+# Binning preparation settings
 ###############################
 
-# If enable_COASSEMBLY is "yes", MEGAHIT coassembly will be performed using the following definitions.
-# Each coassembly is named in the LHS, and corresponding nanopore sample(s) are in RHS (delimited by '+').
-# One coassembly will be performed for each line.
-# E.g. 'Subject1: I3+I4' will result in 1 coassembly: 'Subject1' using I3 and I4 data.
-# Memory per coassembly is calculated to be 10G per sample in the coassembly.
-# Please make sure that there is enough RAM on the server.
+# Whether to use contigs or scaffolds from SPAdes
+METASPADES_CONTIGS_OR_SCAFFOLDS: contigs
+
+# minimum contig/scaffold fasta length
+MIN_FASTA_LENGTH: 2500
+
+# maximum available run for a job to calculate assembly batch size for mapping reads to combined contig sets
+MAX_RAM_GB_PER_JOB: 180
+
+# Should we exclude any assembly type during MAG generation?
+# E.g., if you make MAGs from metaT, individual sample assemblies
+# will be quite fragmented. If you have several co-assemblies, then
+# ignoring 'illumina_single' might improve your MAG quality. This can
+# be achieved using:
+# ---
+# EXCLUDE_ASSEMBLY_TYPES:
+#     - illumina_single
+# ---
 #
-enable_NANOPORE_COASSEMBLY: no
-NANOPORE_COASSEMBLY:
-  'Full': $(echo {params.sample_list} | sed 's/ /+/g')
-___EOF___
+# EXCLUDE_ASSEMBLY_TYPES:
 
-        R --vanilla --silent --no-echo >> {output} <<___EOF___
-library(dplyr)
-metadata <- read.table('{input.metadata}', sep="\\t", header=TRUE) %>%
-    as.data.frame() %>%
-    select(sample, {coas_factor}) %>%
-    filter(sample %in% c({params.sample_string})) %>%
-    group_by({coas_factor}) %>%
-    filter(n() > 1) %>%
-    mutate(co_asm = paste(sample, collapse = "+")) %>%
-    select(-sample) %>%
-    slice(1) %>%
-    mutate({coas_factor}=paste0("  '", {coas_factor}, "'"))
-write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
-___EOF___
+# binning_prep settings
+# Used when mapping reads back to contigs
 
-if [[ "metaG" == "{wildcards.omics}" ]]; then
-        R --vanilla --silent --no-echo >> {output} <<___EOF___
-library(dplyr)
-metadata <- read.table('{input.table}', sep="\\t", header=TRUE) %>%
-    as.data.frame() %>%
-    select(sample, clustering) %>%
-    group_by(clustering) %>%
-    filter(n() > 1) %>%
-    mutate(co_asm = paste(sample, collapse = "+")) %>%
-    select(-sample) %>%
-    slice(1) %>%
-    mutate(clustering=paste0("  SCL", clustering))
-write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
-___EOF___
-fi
+# Which aligner or mapper to use for ILLUMINA: 'bwa' or 'strobealign'
+ILLUMINA_ALIGNER_type: strobealign
+ILLUMINA_ALIGNER_threads: 10
 
-        echo {params.sample_list} >& {log}
+# Which aligner or mapper to use for NANOPORE: 'minimap2'
+NANOPORE_ALIGNER_type: minimap2
+
+# samtools sort settings when using 'bwa' for mapping
+# Used when sorting bam files using 3 threads
+# Memory listed below is PER-THREAD, so please make sure you have enough
+SAMTOOLS_sort_perthread_memgb: 10
+
+# Should I cache contig DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
+
+___EOF___
         """
 
 def processing_done(wildcards):
@@ -1596,7 +1626,8 @@ def processing_done(wildcards):
     omics = wildcards.omics
 
     results = list()
-    results.append(f"{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt")
+    if len(ilmn_samples) > 0:
+        results.append(f"{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt")
     if len(nano_samples) > 0:
         results.append(f"{wd}/output/2-qc/{omics}.NANOPORE.readcounts.txt")
     return(results)
@@ -1607,9 +1638,11 @@ def get_assembly_config_pieces(wildcards):
 
     results = list()
     results.append(f"{wd}/{omics}/assembly.yaml.core")
-    results.append(f"{wd}/{omics}/assembly.yaml.illumina")
+    if len(ilmn_samples) > 0:
+        results.append(f"{wd}/{omics}/assembly.yaml.illumina")
     if len(nano_samples) > 0:
         results.append(f"{wd}/{omics}/assembly.yaml.nanopore")
+    results.append(f"{wd}/{omics}/assembly.yaml.binning")
     return(results)
 
 rule qc2_filter_config_yml_assembly:
@@ -1644,7 +1677,8 @@ rule qc2_filter_config_yml_mapping:
     output:
         config_file="{wd}/{omics}/mapping.yaml"
     params:
-        sample_list = nonredundant_ilmn_samples
+        illumina_samples_yaml='\n'.join(["- '{}'".format(i) for i in nonredundant_ilmn_samples]),
+        illumina_samples_string=', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
     resources:
         mem=2
     threads: 2
@@ -1701,8 +1735,8 @@ ANNOTATION:
 #########################
 
 # Which aligner or mapper to use: 'bwa' or 'strobealign' is supported
-ALIGNER_type: bwa
-ALIGNER_threads: 10
+ILLUMINA_ALIGNER_type: bwa
+ILLUMINA_ALIGNER_threads: 10
 
 # Should I cache genome DB in each node for subsequent jobs to reuse?
 # If you are on NFS, highly recommended to provide a local scratch location available on all nodes
@@ -1750,8 +1784,8 @@ GTDB_TAXONOMY_VERSION: r226
 # - I2
 #
 ILLUMINA_SAMPLES:
-$(for i in {params.sample_list}; do echo "- '$i'"; done)
+{params.illumina_samples_yaml}
 ___EOF___
 
-        echo {params.sample_list} >& {log}
+        echo {params.illumina_samples_string} >& {log}
         """
