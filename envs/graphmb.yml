@@ -1,0 +1,10 @@
+name: graphmb
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.8
+  - pip==20.3.4
+  - pip:
+    - setuptools==58.5.3
+    - graphmb==0.2.5

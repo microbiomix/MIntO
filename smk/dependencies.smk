@@ -129,6 +129,10 @@ def motus_db_out():
     result = f"{minto_dir}/data/motus/{motus_version}/db_mOTU/db_mOTU_versions"
     return(result)
 
+def graphmb_patch_out():
+    result = f"{minto_dir}/include/graphmb.04283a4.patch.done"
+    return(result)
+
 def checkm2_db_out():
     result = f"{minto_dir}/data/CheckM2_database/uniref100.KO.1.dmnd"
     return(result)
@@ -182,6 +186,7 @@ def all_env_out():
 # Define all the outputs needed by target 'all'
 rule all:
     input:
+        graphmb_patch_out(),
         checkm2_db_out(),
         rRNA_db_out(),
         eggnog_db_out(),
@@ -197,6 +202,26 @@ rule all:
         mmseqs_db_out(),
         metabuli_db_out(),
         all_env_out()
+
+###############################################################################################
+# Patch GraphMB v0.2.5
+###############################################################################################
+rule patch_graphmb_bug:
+    input:
+        "{somewhere}/graphmb.04283a4.patch"
+    output:
+        touch("{somewhere}/graphmb.04283a4.patch.done")
+    resources:
+        mem=4
+    threads: 1
+    conda:
+        minto_dir + "/envs/graphmb.yml"
+    shell:
+        """
+        location=$(python -c 'import graphmb, pathlib; print(pathlib.Path(graphmb.__file__).parent)')
+        cd $location
+        patch -p3 < {input}
+        """
 
 ###############################################################################################
 # Download and index rRNA database - SortMeRNA
