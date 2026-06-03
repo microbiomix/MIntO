@@ -17,6 +17,7 @@ Authors: Eleonora Nigro, Mani Arumugam
 
 import os.path
 import math
+import glob
 
 # Get common config variables
 # These are:
@@ -26,6 +27,7 @@ NEED_PROJECT_VARIABLES = True
 include: 'include/cmdline_validator.smk'
 include: 'include/config_parser.smk'
 include: 'include/resources.smk'
+include: 'include/fasta_bam_helpers.smk'
 
 module print_versions:
     snakefile:
@@ -43,8 +45,11 @@ BINNERS              = validate_required_key(config, 'BINNERS')
 for x in BINNERS:
     check_allowed_values('BINNERS', x, ['vae256', 'vae384', 'vae512', 'vae768',
                                         'vaevae256', 'vaevae384', 'vaevae512', 'vaevae768',
-                                        'aaey', 'aaez']
+                                        'aaey', 'aaez',
+                                        'graphmb']
                         )
+VAMB_BINNERS = [x for x in BINNERS if x != 'graphmb']
+GRAPHMB_ENABLED = 'graphmb' in BINNERS
 
 # COVERM params
 COVERM_THREADS       = validate_required_key(config, 'COVERM_THREADS')
@@ -74,6 +79,42 @@ TAXVAMB_ANNOTATOR    = 'metabuli'
 if (x := validate_optional_key(config, 'TAXVAMB_ANNOTATOR')):
     TAXVAMB_ANNOTATOR = x
 check_allowed_values('TAXVAMB_ANNOTATOR', TAXVAMB_ANNOTATOR, ['mmseqs', 'metabuli'])
+
+# GraphMB params
+GRAPHMB_THREADS      = 16
+if (x := validate_optional_key(config, 'GRAPHMB_THREADS')):
+    GRAPHMB_THREADS = x
+GRAPHMB_GPU          = False
+if (x := validate_optional_key(config, 'GRAPHMB_GPU')) is not None:
+    GRAPHMB_GPU = x
+GRAPHMB_EXTRA_ARGS   = ""
+if (x := validate_optional_key(config, 'GRAPHMB_EXTRA_ARGS')) is not None:
+    GRAPHMB_EXTRA_ARGS = x
+
+nanopore_samples = list()
+if (x := validate_optional_key(config, 'NANOPORE_SAMPLES')):
+    nanopore_samples = x
+
+METAFLYE_presets = dict()
+if (x := validate_optional_key(config, 'METAFLYE_presets')):
+    METAFLYE_presets = x
+
+if GRAPHMB_ENABLED:
+    if not nanopore_samples:
+        raise Exception("ERROR: BINNERS includes graphmb, but NANOPORE_SAMPLES is missing or empty.")
+    if not METAFLYE_presets:
+        raise Exception("ERROR: BINNERS includes graphmb, but METAFLYE_presets is missing or empty.")
+
+GRAPHMB_RUNS = []
+if GRAPHMB_ENABLED:
+    GRAPHMB_RUNS = expand("graphmb.{nanopore}.{assembly_preset}",
+                          nanopore = nanopore_samples,
+                          assembly_preset = METAFLYE_presets.keys())
+
+BINNER_SPECS = (
+    expand("vamb/{binner}", binner = VAMB_BINNERS)
+    + expand("graphmb/{binner}", binner = GRAPHMB_RUNS)
+)
 
 # METABULI memory in GB
 METABULI_MEM_GB      = 128
@@ -373,15 +414,185 @@ rule make_vamb_mags:
         """
 
 ###############################
+# Prepare and run GraphMB for ONT-only MetaFlye assemblies
+###############################
+
+# GraphMB was primarily tested with Flye graph-edge sequences as nodes.
+# We therefore extract S-record sequences from assembly_graph.gfa and run
+# GraphMB in edge-node mode. The --contignodes option may be added later
+# as an easier MIntO-integration mode using resolved MetaFlye contigs.
+
+def split_graphmb_binner(binner):
+    fields = binner.split(".", 2)
+    if len(fields) != 3 or fields[0] != "graphmb":
+        raise Exception(f"Invalid GraphMB binner id: {binner}")
+    return fields[1], fields[2]
+
+def graphmb_prep_dir(wildcards):
+    nanopore, assembly_preset = split_graphmb_binner(wildcards.binner)
+    return f"{wildcards.wd}/{wildcards.omics}/8-1-binning/scaffolds_nanopore.{MIN_FASTA_LENGTH}/graphmb/{nanopore}/{assembly_preset}"
+
+def graphmb_prep_file(wildcards, filename):
+    return f"{graphmb_prep_dir(wildcards)}/{filename}"
+
+rule run_graphmb_edges:
+    input:
+        fasta = lambda wildcards: graphmb_prep_file(wildcards, "assembly.fasta"),
+        gfa   = lambda wildcards: graphmb_prep_file(wildcards, "assembly_graph.gfa"),
+        depth = lambda wildcards: graphmb_prep_file(wildcards, "assembly_depth.txt")
+    output:
+        tsv = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_0_best_contig2bin.tsv"
+    shadow:
+        "minimal"
+    params:
+        cuda = "{}".format("--cuda" if GRAPHMB_GPU else ""),
+        extra = GRAPHMB_EXTRA_ARGS,
+        assembly_dir = graphmb_prep_dir,
+    log:
+        "{wd}/logs/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/run_graphmb.log"
+    threads:
+        GRAPHMB_THREADS
+    resources:
+        mem = 64,
+        gpu = 1 if GRAPHMB_GPU else 0
+    conda:
+        minto_dir + "/envs/graphmb.yml"
+    shell:
+        """
+        mkdir -p $(dirname {output.tsv})
+        time (
+            graphmb --version || true
+            graphmb \
+                --assembly {params.assembly_dir} \
+                --outdir out \
+                --assembly_name assembly.fasta \
+                --graph_file assembly_graph.gfa \
+                --depth assembly_depth.txt \
+                --assembly_type flye \
+                --mincontig {MIN_FASTA_LENGTH} \
+                --numcores {threads} \
+                --post contig2bin \
+                {params.cuda} \
+                {params.extra}
+            rsync -a out/ $(dirname {output.tsv})/
+        ) >& {log}
+        """
+
+rule graphmb_tsv:
+    input:
+        tsv = rules.run_graphmb_edges.output.tsv,
+        fasta = lambda wildcards: graphmb_prep_file(wildcards, "assembly.fasta")
+    output:
+        tsv = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_clusters.tsv",
+        fasta = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_renamed_edges.fasta",
+        map = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_edge_id_map.tsv"
+    log:
+        "{wd}/logs/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/normalize_graphmb_output.log"
+    run:
+        import re
+        import sys
+
+        nanopore, assembly_preset = split_graphmb_binner(wildcards.binner)
+
+        # read fasta file and rename contigs
+
+        edge_to_new = {}
+        fasta_renamed = 0
+        with open(output.fasta, "w") as out_fa, open(output.map, "w") as out_map:
+            out_map.write("raw_edge_id\tminto_contig_id\tlength\n")
+            for edge_id, seq in fasta_iter(input.fasta):
+                node_id = edge_id.replace("edge_", "NODE_")
+                new_id = f"MetaFlye.{assembly_preset}.{nanopore}_{node_id}_length_{len(seq)}"
+                edge_to_new[edge_id] = new_id
+                out_map.write(f"{edge_id}\t{new_id}\t{len(seq)}\n")
+                out_fa.write(f">{new_id}\n{seq}\n")
+                fasta_renamed += 1
+
+        # read GraphMB cluster assignment and normalize to MIntO style
+        # <clustername>\t<contigname>
+
+        assigned = 0
+        missing = set()
+        with open(input.tsv) as inp, open(output.tsv, "w") as out:
+            for line in inp:
+                line = line.strip()
+                if not line or line.startswith("@"):
+                    continue
+                words = line.split()
+                if len(words) < 2:
+                    continue
+                edge_id, bin_id = words[0], words[1]
+                if edge_id not in edge_to_new:
+                    missing.add(edge_id)
+                    continue
+                out.write(f"{bin_id}\t{edge_to_new[edge_id]}\n")
+                assigned += 1
+
+        # log status
+        os.makedirs(os.path.dirname(str(log[0])), exist_ok=True)
+        with open(log[0], "w") as lg:
+            if missing:
+                lg.write(
+                    "GraphMB output contained following edge IDs absent from FASTA:\n"
+                    + "\n".join(sorted(list(missing)))
+                )
+                raise ValueError(
+                    "GraphMB output contained edge IDs absent from FASTA, examples: "
+                    + ", ".join(sorted(list(missing))[:20])
+                )
+
+            if assigned == 0:
+                lg.write("No GraphMB bin assignments were written")
+                raise ValueError("No GraphMB bin assignments were written")
+            else:
+                lg.write("Number of fasta records renamed: {fasta_renamed}\n")
+                lg.write("Number of GraphMB assignments read: {}\n".format(assigned + len(missing)))
+                lg.write("Number of GraphMB assignments written: {assigned}\n")
+                lg.write("Number of missing ids: {}\n".format(len(missing)))
+
+### Select MAGs that satisfy min_fasta_length criterion
+# this is on vamb, if there are other binners, depending on the output, the bins should be processed differently
+rule make_graphmb_mags:
+    input:
+        tsv          = rules.graphmb_tsv.output.tsv,
+        contigs_file = rules.graphmb_tsv.output.fasta
+    output:
+        discarded_genomes = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/discarded_genomes.txt",
+        bin_folder = directory("{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/bins")
+    params:
+        min_mag_length = MIN_MAG_LENGTH
+    log:
+        "{wd}/logs/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}.take_all_genomes_for_each_run.log"
+    resources:
+        mem=10
+    threads:
+        2 # Decide number of threads
+    conda:
+        minto_dir + "/envs/mags.yml"
+    shell:
+        """
+        time (
+            mkdir -p {output.bin_folder}
+            python {script_dir}/take_all_genomes.py \
+                    --vamb_cluster_tsv {input.tsv} \
+                    --contigs_file {input.contigs_file} \
+                    --binning_method_name graphmb \
+                    --min_fasta_length {params.min_mag_length} \
+                    --output_folder {output.bin_folder} \
+                    --discarded_genomes_info {output.discarded_genomes}
+            ) &> {log}
+        """
+
+###############################
 # Prepare batches for checkM
 ###############################
 
 checkpoint prepare_bins_for_checkm:
     localrule: True
     input:
-        bin_folder = rules.make_vamb_mags.output.bin_folder
+        bin_folder = "{wd}/{omics}/8-1-binning/{mag_dir}/{binner_group}/{binner}/bins"
     output:
-        checkm_groups = directory("{wd}/{omics}/8-1-binning/{mag_dir}/vamb/{binner}/checkm")
+        checkm_groups = directory("{wd}/{omics}/8-1-binning/{mag_dir}/{binner_group}/{binner}/checkm")
     params:
         batch_size = CHECKM_BATCH_SIZE
     shell:
@@ -402,10 +613,11 @@ checkpoint prepare_bins_for_checkm:
 def get_checkm_output_for_batches(wildcards):
     #Collect the genome bins from previous step
     checkpoint_output = checkpoints.prepare_bins_for_checkm.get(**wildcards).output[0]
-    result = expand("{wd}/{omics}/8-1-binning/{mag_dir}/vamb/{binner}/checkm/{batch}.out/quality_report.tsv",
+    result = expand("{wd}/{omics}/8-1-binning/{mag_dir}/{binner_group}/{binner}/checkm/{batch}.out/quality_report.tsv",
                     wd      = wildcards.wd,
                     omics   = wildcards.omics,
                     mag_dir = wildcards.mag_dir,
+                    binner_group = wildcards.binner_group,
                     binner  = wildcards.binner,
                     batch   = glob_wildcards(os.path.join(checkpoint_output, 'batch.{batch}')).batch)
     return(result)
@@ -447,9 +659,9 @@ rule merge_checkm_batches:
     input:
         get_checkm_output_for_batches
     output:
-        binner_combined = "{wd}/{omics}/8-1-binning/{mag_dir}/vamb/{binner}/{binner}.checkM.txt"
+        binner_combined = "{wd}/{omics}/8-1-binning/{mag_dir}/{binner_group}/{binner}/{binner}.checkM.txt"
     log:
-        "{wd}/logs/{omics}/8-1-binning/{mag_dir}/vamb/{binner}.checkM.merge.log"
+        "{wd}/logs/{omics}/8-1-binning/{mag_dir}/{binner_group}/{binner}.checkM.merge.log"
     resources:
         mem=10
     threads:
@@ -471,11 +683,10 @@ rule merge_checkm_batches:
 
 rule make_comprehensive_table:
     input:
-        lambda wildcards: expand("{wd}/{omics}/8-1-binning/{mag_dir}/vamb/{binner}/{binner}.checkM.txt",
-                                wd      = wildcards.wd,
-                                omics   = wildcards.omics,
-                                mag_dir = wildcards.mag_dir,
-                                binner  = BINNERS)
+        lambda wildcards: expand(f"{wildcards.wd}/{wildcards.omics}/8-1-binning/{wildcards.mag_dir}/{{binner_spec}}/{{binner}}.checkM.txt",
+                                zip,
+                                binner_spec = BINNER_SPECS,
+                                binner  = [x.split("/", 1)[1] for x in BINNER_SPECS])
     output:
         checkm_all = "{wd}/{omics}/8-1-binning/{mag_dir}/checkm/checkm-comprehensive.tsv"
     log:
@@ -504,7 +715,7 @@ rule collect_HQ_genomes:
         checkm_HQ = "{wd}/{omics}/8-1-binning/{mag_dir}/HQ_genomes_checkm.tsv",
         HQ_folder = directory("{wd}/{omics}/8-1-binning/{mag_dir}/HQ_genomes")
     params:
-        bin_folder    = lambda wildcards: f"{wildcards.wd}/{wildcards.omics}/8-1-binning/{wildcards.mag_dir}/vamb/",
+        mag_folder    = lambda wildcards: f"{wildcards.wd}/{wildcards.omics}/8-1-binning/{wildcards.mag_dir}",
         completeness  = CHECKM_COMPLETENESS,
         contamination = CHECKM_CONTAMINATION
     log:
@@ -534,10 +745,10 @@ rule collect_HQ_genomes:
         hq_bins = list(HQ_checkm_results["Name"])
         with open(str(log), 'w') as f:
             for bin_id in hq_bins:
-                if '.' not in bin_id:
-                    raise Exception(f"Invalid bin_id {bin_id}")
-                binner_name      = bin_id.split('.')[0]
-                source_file      = params.bin_folder + "/{}/bins/{}.fna".format(binner_name, bin_id)
+                matches = glob.glob(params.mag_folder + "/*/*/bins/{}.fna".format(bin_id))
+                if len(matches) != 1:
+                    raise Exception(f"Could not uniquely locate FASTA for bin_id {bin_id}. Matches: {matches}")
+                source_file      = matches[0]
                 destination_file = output.HQ_folder  + "/{}.fna".format(bin_id)
                 print("[rule collect_HQ_genomes] Hardlinking {} to {}".format(source_file, destination_file), file=f)
                 subprocess.run(args=["ln", source_file, destination_file], stdout=f, stderr=f)
