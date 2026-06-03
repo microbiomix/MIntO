@@ -75,14 +75,11 @@ def kegg_completeness_out():
     return(result)
 
 def dbCAN_db_out():
-    files = ["CAZyDB.fa",
-                "fam-substrate-mapping.tsv",
-                "dbCAN.txt",
-                "tcdb.fa",
-                "tf-1.hmm",
-                "tf-2.hmm",
-                "stp.hmm"]
-    result = expand("{somewhere}/data/dbCAN_db/V12/{file}",
+    files = ["CAZy.dmnd",
+                "dbCAN-sub.hmm",
+                "dbCAN.hmm",
+                "fam-substrate-mapping.tsv"]
+    result = expand("{somewhere}/data/dbCAN_db/V14/{file}",
                 somewhere = minto_dir,
                 file = files)
     return(result)
@@ -283,7 +280,17 @@ rule eggnog_db:
     shell:
         """
         mkdir -p {minto_dir}/data/eggnog_data/data
+
         time (
+
+            # eggnog-mapper from conda has invalid DB URLs. This needs to be patched.
+            # patch download_eggnog_data.py, if not patched already
+            TARGET=$(which download_eggnog_data.py)
+            if ! grep -q "Patched by MIntO on" $TARGET; then
+                echo "# Patching $TARGET"
+                perl -i -pe 'use Time::Piece; $date = localtime->date; s/eggnogdb.embl.de/eggnog5.embl.de/; s/^BASE_URL/# Patched by MIntO on $date\\nBASE_URL/' $TARGET
+            fi
+
             download_eggnog_data.py -y --data_dir {minto_dir}/data/eggnog_data/data -P -M -f
             echo 'eggNOG database downloaded'
         ) &> {log}
@@ -738,16 +745,18 @@ rule download_metabuli_GTDB_db:
         """
         time (
             # Download
-            metabuli databases {metabuli_tax_db} outdir tmpdir --threads {threads}
+            wget --no-verbose https://steineggerlab.s3.amazonaws.com/metabuli/archive/gtdb.tar.gz
             if [ $? -eq 0 ]; then
                 echo 'metabuli download: OK'
             else
                 echo 'metabuli download: FAIL'
             fi
-            rm -rf tmpdir
+
+            # Extract
+            tar xfz gtdb.tar.gz
 
             # Now sync to minto_dir
-            rsync -a outdir/{params.dbdir}/* $(dirname {output.db})
+            rsync -a {params.dbdir}/* $(dirname {output.db})
 
         ) &> {log}
         """
