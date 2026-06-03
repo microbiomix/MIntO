@@ -278,11 +278,11 @@ if len(ilmn_samples) > 0:
 
     def calculate_batch_filesize_mb(wildcards):
         filtered_batch_size = (max_job_ram_gb-5)/22*1024
-        if wildcards.scaf_type.endswith("nanopore"):
-            # assuming that size filtering doesn't drastically reduce file size
+        if wildcards.scaf_type == "nanopore":
+            # 2500bp size filtering doesn't reduce file size (stays at 98%)
             return(round(filtered_batch_size))
         else:
-            # 2500bp filtering reduces file size by approx. half,
+            # 2500bp size filtering reduces file size to around 60-70%
             # we account for lower min. length and better assemblies here
             return(round((filtered_batch_size-50)/0.6))
 
