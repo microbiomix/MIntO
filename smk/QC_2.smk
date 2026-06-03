@@ -1608,6 +1608,7 @@ ILLUMINA_ALIGNER_threads: 10
 
 # Which aligner or mapper to use for NANOPORE: 'minimap2'
 NANOPORE_ALIGNER_type: minimap2
+NANOPORE_ALIGNER_threads: 10
 
 # samtools sort settings when using 'bwa' for mapping
 # Used when sorting bam files using 3 threads
