@@ -1048,9 +1048,10 @@ rule config_yml_binning:
     log:
         "{wd}/logs/{omics}/config_yml_mags_generation.log"
     params:
-        min_fasta_length=MIN_FASTA_LENGTH,
-        nanopore_samples_yaml='\n'.join(["- '{}'".format(i) for i in nano_samples]),
-        metaflye_presets_yaml='\n'.join(['  {}: "{}"'.format(k, METAFLYE_presets[k]) for k in METAFLYE_presets.keys()])
+        min_fasta_length      = MIN_FASTA_LENGTH,
+        binners               = '\n'.join(["- {}".format(i) for i in ['aaey', 'aaez', 'vaevae512']]) if ilmn_samples else '- graphmb',
+        nanopore_samples_yaml = '\n'.join(["- '{}'".format(i) for i in nano_samples]),
+        metaflye_presets_yaml = '\n'.join(['  {}: "{}"'.format(k, METAFLYE_presets[k]) for k in METAFLYE_presets.keys()])
     shell:
         """
         time (echo "######################
@@ -1083,9 +1084,7 @@ MIN_MAG_LENGTH: 500000
 # Our default for ILLUMINA-based data combines TAXVAMB using vaevae512 and AAMB using aaey and aaez.
 
 BINNERS:
-- aaey
-- aaez
-- vaevae512
+{params.binners}
 
 VAMB_THREADS: 20
 
