@@ -99,13 +99,16 @@ discarded_genomes = args.discarded_genomes_info
 
 # create a dictionary with contigs and length
 
-dictionary_of_contigs_length = {}
+dict_contig_name2seq  = {}
+dict_contig_name2full = {}
 
 for header, sequence in fasta_iter(contigs_file):
+	contig_full = str(header)
 	contig_name = str(header).split(" ")[0] # take only the name without the flag
 
-	if not contig_name in dictionary_of_contigs_length:
-		dictionary_of_contigs_length[contig_name] = sequence
+	if not contig_name in dict_contig_name2seq:
+		dict_contig_name2seq[contig_name]  = sequence
+		dict_contig_name2full[contig_name] = contig_full
 	
 # open the cluster.tsv table
 cluster_tsv = pd.read_csv(cluster_tsv, sep = "\t", names = ["bin", "contig"])
@@ -139,14 +142,14 @@ for bins in bins_dictionary:
 
 	for contig in bins_dictionary[bins]:
 
-		if contig in dictionary_of_contigs_length:
-			contig_length = int(len((dictionary_of_contigs_length[contig])))
+		if contig in dict_contig_name2seq:
+			contig_length = int(len((dict_contig_name2seq[contig])))
 			bins_length =  bins_length + contig_length
 			
 		else:
 			print("{} Strange! Contigs cannot be found in the dictionary".format(contig))
 
-			for i in dictionary_of_contigs_length:
+			for i in dict_contig_name2seq:
 				if contig in i:
 					print("Contig in FASTA file: {}".format(i))
 					print("Contig in VAMB file: {}".format(contig))
@@ -160,8 +163,9 @@ for bins in bins_dictionary:
 
 		with open(renamed_bins, "w") as fh:
 			for contig in bins_dictionary[bins]:
-				fh.write(">{}\n".format(contig))
-				sequence = dictionary_of_contigs_length[contig]
+				header   = dict_contig_name2full[contig]
+				fh.write(">{}\n".format(header))
+				sequence = dict_contig_name2seq[contig]
 				fh.write("{}\n".format(str(sequence)))
 		
 	else:
