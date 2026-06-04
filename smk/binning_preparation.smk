@@ -935,10 +935,12 @@ if len(nano_samples) > 0:
 
     ################################################################################################
     # GraphMB graph-edge binning preparation for ONT-only MetaFlye assemblies
+    # Bring fasta, gfa and depth files to one directory so that mags_generation can be simple
     ################################################################################################
 
-    rule prepare_graphmb_edge_fasta:
+    rule prepare_graphmb_edge_files:
         input:
+            fasta = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.fasta",
             gfa = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.gfa"
         output:
             fasta = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.fasta",
@@ -946,7 +948,7 @@ if len(nano_samples) > 0:
         wildcard_constraints:
             min_length = r'\d+'
         log:
-            "{wd}/logs/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/prepare_graphmb_edge_fasta.log"
+            "{wd}/logs/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/prepare_graphmb_edge_files.log"
         resources:
             mem = 5
         conda:
@@ -955,30 +957,14 @@ if len(nano_samples) > 0:
             """
             mkdir -p $(dirname {output.fasta})
             time (
-                awk 'BEGIN {{found=0; missing=0}}
-                    /^S\t/ {{
-                        found++;
-                        if ($3 == "*") {{
-                            missing++;
-                            print "ERROR: GFA S record has no sequence: " $2 > "/dev/stderr"
-                        }} else {{
-                            print ">" $2;
-                            print $3
-                        }}
-                    }}
-                    END {{
-                        if (missing > 0 || found == 0) {{
-                            if (found == 0) print "ERROR: no GFA S records found" > "/dev/stderr";
-                            exit 1
-                        }}
-                    }}' {input.gfa} | fold -w 80 > {output.fasta}
-                rsync -a {input.gfa} {output.gfa}
+                ln --force {input.gfa} {output.gfa}
+                ln --force {input.fasta} {output.fasta}
             ) >& {log}
             """
 
     rule graphmb_depth_coverm:
         input:
-            fasta = rules.prepare_graphmb_edge_fasta.output.fasta,
+            fasta = rules.prepare_graphmb_edge_files.output.fasta,
             ont   = "{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz"
         output:
             depth = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_depth.txt"

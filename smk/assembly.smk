@@ -6,7 +6,7 @@ Assembling metagenomes from combinations of illumina/bgi-seq and nanopore sequen
 Authors: Carmen Saenz, Mani Arumugam
 '''
 
-import os.path
+import os
 
 # Get common config variables
 # These are:
@@ -193,10 +193,11 @@ def nanopore_single_assembly_output():
     if len(nanopore_samples) == 0:
         return(list())
 
-    result = expand("{wd}/{omics}/7-assembly/{sample}/{assembly_preset}/{sample}.assembly.fasta",
+    result = expand("{wd}/{omics}/7-assembly/{sample}/{assembly_preset}/{sample}.assembly.{seq_type}.fasta",
                     wd = working_dir,
                     omics = omics,
                     sample = nanopore_samples,
+                    seq_type = ['nodes', 'edges'],
                     assembly_preset = METAFLYE_presets)
     return(result)
 
@@ -582,9 +583,11 @@ if len(nanopore_samples) > 0:
             """
 
     ###############################################################################################
-    # Intermediate Rule: Safe Dnaapler reorientation for mixed metagenomic FASTA
+    # Dnaapler reorientation for mixed metagenomic FASTA
+    # "dnaapler all" sweeps for chromosomes, plasmids, and phages simultaneously.
+    # We ignore sequences not flagged as circular by Flye
     ###############################################################################################
-    rule dnaapler_reorient:
+    rule dnaapler_reorient_nodes:
         input:
             contigs = rules.nanopore_assembly_metaflye.output.fasta,
             info    = rules.nanopore_assembly_metaflye.output.info
@@ -593,14 +596,12 @@ if len(nanopore_samples) > 0:
         shadow:
             "minimal"
         log:
-            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/dnaapler.log"
+            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/dnaapler_fasta.log"
         threads: 8
         conda:
             minto_dir + "/envs/ont_polishing.yml"
         shell:
             """
-            # "dnaapler all" sweeps for chromosomes, plasmids, and phages simultaneously.
-            # We ignore sequences not flagged as circular by Flye
 
             awk '$4 == "N"' {input.info} | cut -f 1 > ignore.list
 
@@ -617,22 +618,207 @@ if len(nanopore_samples) > 0:
             """
 
     ###############################################################################################
-    # Polish flye contigs using medaka
+    # Dnaapler reorientation for mixed metagenomic gfa
+    # "dnaapler all" sweeps for chromosomes, plasmids, and phages simultaneously.
+    # Since gfa mode only processes circular edges, we don't need an ignore list here.
+    ###############################################################################################
+    rule dnaapler_reorient_edges:
+        input:
+            gfa  = rules.nanopore_assembly_metaflye.output.gfa,
+        output:
+            gfa  = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.dnaapler.gfa"
+        shadow:
+            "minimal"
+        log:
+            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/dnaapler_gfa.log"
+        threads: 8
+        conda:
+            minto_dir + "/envs/ont_polishing.yml"
+        shell:
+            """
+            set -euo pipefail
+            (
+                set +e
+                time dnaapler all -i {input.gfa} -o out -t {threads} -f
+                dnaapler_status=$?
+                set -e
+
+                echo "dnaapler exit status: $dnaapler_status"
+
+                # Extract Dnaapler's aggregated output file, fallback safely if none were rotated
+                if [ -f "out/dnaapler_reoriented.gfa" ]; then
+                    echo "dnaapler produced reoriented GFA; using it."
+                    rsync -a "out/dnaapler_reoriented.gfa" {output.gfa}
+                else
+                    echo "dnaapler did not produce reoriented GFA; using original GFA."
+                    ln --force {input.gfa} {output.gfa}
+                fi
+            ) >& {log}
+            """
+
+    ###############################################################################################
+    # Create an edge-fasta from the dnaapler reoriented gfa file
+    # For reoriented edges, it adds "rotated=True rotated_gene=dnaA" dnaaper-style fasta description
+    # Also write a assembly_graph_info.txt where the first four columns are just like
+    # Flye's assembly_info.txt on nodes
+    ###############################################################################################
+
+    rule extract_gfa_edge_info_fasta:
+        input:
+            gfa = rules.dnaapler_reorient_edges.output.gfa,
+        output:
+            fasta = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.fasta",
+            info  = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph_info.txt"
+        log:
+            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/extract_gfa_edge_info_fasta.log"
+        resources:
+            mem = 5
+        run:
+            import textwrap
+
+            edge_order = []
+            seqs = {}
+            cov = {}
+            circ = {}
+            rotated = {}
+            rotation_marker = {}
+
+            self_linked_edges = set()
+            single_edge_paths = {}
+            missing_sequences = []
+
+            # Parse the GFA once and collect three pieces of information:
+            # S records: edge sequences and per-edge tags
+            # L records: self-links, used as circularity evidence
+            # P records: contig paths, used to identify single-edge contigs
+            with open(input.gfa) as handle:
+                for line in handle:
+                    line = line.rstrip("\n")
+                    if not line:
+                        continue
+
+                    fields = line.split("\t")
+                    record_type = fields[0]
+
+                    if record_type == "S":
+                        edge = fields[1]
+                        seq = fields[2]
+
+                        edge_order.append(edge)
+
+                        # Flye GFA normally embeds sequences in S records.
+                        # GraphMB edge-mode needs these sequences to build assembly.fasta.
+                        if seq == "*":
+                            missing_sequences.append(edge)
+                            continue
+
+                        seqs[edge] = seq
+                        cov[edge] = "*"
+                        circ[edge] = "N"
+                        rotated[edge] = "N"
+                        rotation_marker[edge] = "*"
+
+                        # dp:i:<value> is Flye's edge coverage tag.
+                        # RT:z:<marker> is added by dnaapler when it rotates a sequence.
+                        for tag in fields[3:]:
+                            if tag.startswith("dp:i:"):
+                                cov[edge] = tag.split(":", 2)[2]
+                            elif tag.startswith("RT:z:"):
+                                rotated[edge] = "Y"
+                                rotation_marker[edge] = tag.split(":", 2)[2]
+
+                    elif record_type == "L" and len(fields) >= 6:
+                        from_edge = fields[1]
+                        to_edge = fields[3]
+                        overlap = fields[5]
+
+                        # A self-link is one part of the conservative circularity call.
+                        # We combine this with a single-edge P path below.
+                        if from_edge == to_edge and overlap == "0M":
+                            self_linked_edges.add(from_edge)
+
+                    elif record_type == "P" and len(fields) >= 3:
+                        path_name = fields[1]
+                        path = fields[2]
+                        path_edges = path.split(",")
+
+                        # Flye reports simple circular contigs like:
+                        # P contig_1250 edge_1250+ *
+                        # These are easy to map back to one graph edge.
+                        if len(path_edges) == 1:
+                            edge = path_edges[0].rstrip("+-")
+                            single_edge_paths[edge] = path_name
+
+            if not edge_order:
+                raise ValueError("No GFA S records found")
+
+            if missing_sequences:
+                examples = ", ".join(missing_sequences[:20])
+                raise ValueError(
+                    "GFA contains S records without embedded sequence. "
+                    f"Examples: {examples}"
+                )
+
+            # Mark circularity after parsing all records.
+            # We require both: a self-link and a single-edge contig path.
+            # This avoids marking arbitrary self-linked graph components as circular contigs.
+            for edge in edge_order:
+                if edge in self_linked_edges and edge in single_edge_paths:
+                    circ[edge] = "Y"
+
+            with open(output.fasta, "w") as out_fa, open(output.info, "w") as out_info:
+                out_info.write(
+                    "#seq_name\tlength\tcov.\tcirc.\t"
+                    "rotated_by_dnaapler\trotation_marker\n"
+                )
+
+                for edge in edge_order:
+                    seq = seqs[edge]
+
+                    # Write rotation information in fasta description
+                    header = edge
+                    if rotated[edge] == "Y":
+                        header += f" rotated=True rotated_gene={rotation_marker[edge]}"
+                    out_fa.write(f">{header}\n")
+                    out_fa.write("\n".join(textwrap.wrap(seq, 80)) + "\n")
+
+                    out_info.write(
+                        f"{edge}\t"
+                        f"{len(seq)}\t"
+                        f"{cov[edge]}\t"
+                        f"{circ[edge]}\t"
+                        f"{rotated[edge]}\t"
+                        f"{rotation_marker[edge]}\n"
+                    )
+
+            with open(log[0], "w") as lg:
+                lg.write(f"Input GFA: {input.gfa}\n")
+                lg.write(f"Output FASTA: {output.fasta}\n")
+                lg.write(f"Output graph info: {output.info}\n")
+                lg.write(f"S records: {len(edge_order)}\n")
+                lg.write(f"Self-linked edges: {len(self_linked_edges)}\n")
+                lg.write(f"Single-edge paths: {len(single_edge_paths)}\n")
+                lg.write(f"Circular single-edge records: {sum(v == 'Y' for v in circ.values())}\n")
+                lg.write(f"dnaapler-rotated records: {sum(v == 'Y' for v in rotated.values())}\n")
+                lg.write("Done\n")
+
+    ###############################################################################################
+    # Polish dnaapler-reoriented flye contigs using medaka
     ###############################################################################################
 
     # mem_usage
     # Regression: max_mem_kb = 1.214e06 + 4.863e-02*len(input.contigs)
     # On top, it gets a baseline 5GB and every new attempt gets 5GB more.
-    rule medaka_consensus:
+    rule medaka_consensus_nodes:
         input:
-            contigs = rules.dnaapler_reorient.output.fasta,
+            contigs = rules.dnaapler_reorient_nodes.output.fasta,
             reads   = "{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz",
         output:
-            fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.medaka.fasta"
+            fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.dnaapler.medaka.fasta"
         shadow:
             "minimal"
         log:
-            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/medaka_consensus.log"
+            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/medaka_consensus_nodes.log"
         params:
             model = MEDAKA_INFERENCE_MODEL if MEDAKA_INFERENCE_MODEL is not None else ""
         threads:
@@ -651,61 +837,117 @@ if len(nanopore_samples) > 0:
             """
 
     ###############################################################################################
+    # Polish dnaapler-reoriented flye gfa edge_fasta using medaka
+    ###############################################################################################
+
+    # mem_usage
+    # Regression: max_mem_kb = 1.214e06 + 4.863e-02*len(input.contigs)
+    # On top, it gets a baseline 5GB and every new attempt gets 5GB more.
+    rule medaka_consensus_edges:
+        input:
+            contigs = rules.extract_gfa_edge_info_fasta.output.fasta,
+            reads   = "{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz",
+        output:
+            fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.medaka.fasta"
+        shadow:
+            "minimal"
+        log:
+            "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/medaka_consensus_edges.log"
+        params:
+            model = MEDAKA_INFERENCE_MODEL if MEDAKA_INFERENCE_MODEL is not None else ""
+        threads:
+            4
+        resources:
+            mem=lambda wildcards, input, attempt: 1.22 + 5e-8*len(input.contigs) + 5*attempt,
+            gpu=1
+        conda:
+            minto_dir + "/envs/ont_polishing.yml"
+        shell:
+            """
+            time (
+                medaka_consensus -i {input.reads} -d {input.contigs} -o out -t {threads} {params.model}
+                rsync -a out/consensus.fasta {output.fasta}
+            ) >& {log}
+            """
+
+    def mark_circular_seq(wildcards, input, output, seq_type):
+        # Step 1: Read circularity info file to find structurally circular sequences
+        circular = {}
+        with open(input.circ_info, "r") as f:
+            for line in f:
+                words = line.strip().split('\t')
+                if len(words) > 3 and words[3] == "Y":
+                    circular[words[0]] = 1
+
+        # Step 2: Read Dnaapler's intermediate FASTA to harvest metadata notes
+        dnaapler_notes = {}
+        with open(input.dnaapler_fasta, "r") as f:
+            for line in f:
+                if line.startswith(">"):
+                    # Extract the base ID and any trailing description fields
+                    header_parts = line.strip().replace(">", "").split(maxsplit=1)
+                    base_id = header_parts[0]
+
+                    # Save the description if Dnaapler appended one (e.g., 'rotated=True rotated_gene=terL')
+                    if len(header_parts) > 1:
+                        dnaapler_notes[base_id] = header_parts[1]
+
+        # Step 3: Parse polished Medaka file, combining and reapplying metadata tags
+        with open(output.final_fasta, 'w') as out:
+            fiter = fasta_iter(input.medaka_fasta)
+            for entry in fiter:
+                header, seq = entry
+
+                # Medaka outputs the bare ID. Ensure we match the original baseline string
+                base_id = header.split()[0]
+
+                # Convert 'edge/contig' to 'EDGE/NODE' to maintain MIntO's standard layout naming scheme
+                if seq_type == "EDGE":
+                    seq_id = base_id.replace("edge", "EDGE")
+                else:
+                    seq_id = base_id.replace("contig", "NODE")
+                new_header = f"{seq_id}_length_{len(seq)}"
+
+                # A. Re-apply the structural Flye circularity flag if true
+                if base_id in circular:
+                    new_header = f"{new_header}_circularA"
+
+                # B. Re-append dnaapler's functional notes if they exist
+                if base_id in dnaapler_notes:
+                    new_header = f"{new_header} {dnaapler_notes[base_id]}"
+
+                # Write sequence out
+                out.write(f">MetaFlye.{wildcards.assembly_preset}.{wildcards.nanopore}_{new_header}\n")
+                out.write(seq+"\n")
+
+    ###############################################################################################
     # This rule identifies contigs marked circular in assembly_info.txt.
     # It appends '_circularA' to the fasta header.
+    # For dnaapler rotated contigs, it also retains the fasta comment added by dnaapler
     ###############################################################################################
-    rule mark_circular_flye_contigs:
+    rule mark_circular_flye_nodes:
         localrule: True
         input:
-            medaka_fasta   = rules.medaka_consensus.output.fasta,
-            dnaapler_fasta = rules.dnaapler_reorient.output.fasta,
-            flye_info      = rules.nanopore_assembly_metaflye.output.info,
+            medaka_fasta   = rules.medaka_consensus_nodes.output.fasta,
+            dnaapler_fasta = rules.dnaapler_reorient_nodes.output.fasta,
+            circ_info      = rules.nanopore_assembly_metaflye.output.info,
         output:
-            final_fasta    = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.fasta",
+            final_fasta    = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.nodes.fasta",
         run:
+            mark_circular_seq(wildcards, input, output, seq_type="NODE")
 
-            # Step 1: Read Flye assembly_info file to find structurally circular contigs
-            circular = {}
-            with open(input.flye_info, "r") as f:
-                for line in f:
-                    words = line.strip().split('\t')
-                    if len(words) > 3 and words[3] == "Y":
-                        circular[words[0]] = 1
-
-            # Step 2: Read Dnaapler's intermediate FASTA to harvest metadata notes
-            dnaapler_notes = {}
-            with open(input.dnaapler_fasta, "r") as f:
-                for line in f:
-                    if line.startswith(">"):
-                        # Extract the base ID and any trailing description fields
-                        header_parts = line.strip().replace(">", "").split(maxsplit=1)
-                        base_id = header_parts[0]
-
-                        # Save the description if Dnaapler appended one (e.g., 'rotated=True rotated_gene=terL')
-                        if len(header_parts) > 1:
-                            dnaapler_notes[base_id] = header_parts[1]
-
-            # Step 3: Parse polished Medaka file, combining and reapplying metadata tags
-            with open(output.final_fasta, 'w') as out:
-                fiter = fasta_iter(input.medaka_fasta)
-                for entry in fiter:
-                    header, seq = entry
-
-                    # Medaka outputs the bare ID. Ensure we match the original baseline string
-                    base_id = header.split()[0]
-
-                    # Convert 'contig' to 'NODE' to maintain MIntO's standard layout naming scheme
-                    node_id = base_id.replace("contig", "NODE")
-                    new_header = f"{node_id}_length_{len(seq)}"
-
-                    # A. Re-apply the structural Flye circularity flag if true
-                    if base_id in circular:
-                        new_header = f"{new_header}_circularA"
-
-                    # B. Re-append dnaapler's functional notes if they exist
-                    if base_id in dnaapler_notes:
-                        new_header = f"{new_header} {dnaapler_notes[base_id]}"
-
-                    # Write sequence out
-                    out.write(f">MetaFlye.{wildcards.assembly_preset}.{wildcards.nanopore}_{new_header}\n")
-                    out.write(seq+"\n")
+    ###############################################################################################
+    # This rule identifies contigs marked circular in assembly_info.txt.
+    # It appends '_circularA' to the fasta header.
+    # For dnaapler rotated contigs, it also retains the fasta comment added by dnaapler
+    ###############################################################################################
+    rule mark_circular_flye_edges:
+        localrule: True
+        input:
+            medaka_fasta   = rules.medaka_consensus_edges.output.fasta,
+            dnaapler_fasta = rules.extract_gfa_edge_info_fasta.output.fasta,
+            circ_info      = rules.extract_gfa_edge_info_fasta.output.info,
+        output:
+            final_fasta    = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.fasta",
+        run:
+            mark_circular_seq(wildcards, input, output, seq_type="EDGE")
