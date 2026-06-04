@@ -441,12 +441,12 @@ rule run_graphmb_edges:
         gfa   = lambda wildcards: graphmb_prep_file(wildcards, "assembly_graph.gfa"),
         depth = lambda wildcards: graphmb_prep_file(wildcards, "assembly_depth.txt")
     output:
-        tsv = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_0_best_contig2bin.tsv"
+        tsv   = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_0_best_contig2bin.tsv"
     shadow:
         "minimal"
     params:
-        cuda = "{}".format("--cuda" if GRAPHMB_GPU else ""),
-        extra = GRAPHMB_EXTRA_ARGS,
+        cuda         = "{}".format("--cuda" if GRAPHMB_GPU else ""),
+        extra        = GRAPHMB_EXTRA_ARGS,
         assembly_dir = graphmb_prep_dir,
     log:
         "{wd}/logs/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/run_graphmb.log"
@@ -480,12 +480,10 @@ rule run_graphmb_edges:
 
 rule graphmb_tsv:
     input:
-        tsv = rules.run_graphmb_edges.output.tsv,
-        fasta = lambda wildcards: graphmb_prep_file(wildcards, "assembly.fasta")
+        renaming = lambda wildcards: graphmb_prep_file(wildcards, "assembly.edges.renaming.tsv"),
+        tsv      = rules.run_graphmb_edges.output.tsv,
     output:
-        tsv = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_clusters.tsv",
-        fasta = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_renamed_edges.fasta",
-        map = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_edge_id_map.tsv"
+        tsv      = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/graphmb_clusters.tsv",
     log:
         "{wd}/logs/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/normalize_graphmb_output.log"
     run:
@@ -494,19 +492,15 @@ rule graphmb_tsv:
 
         nanopore, assembly_preset = split_graphmb_binner(wildcards.binner)
 
-        # read fasta file and rename contigs
-
-        edge_to_new = {}
-        fasta_renamed = 0
-        with open(output.fasta, "w") as out_fa, open(output.map, "w") as out_map:
-            out_map.write("raw_edge_id\tminto_contig_id\tlength\n")
-            for edge_id, seq in fasta_iter(input.fasta):
-                node_id = edge_id.replace("edge_", "NODE_")
-                new_id = f"MetaFlye.{assembly_preset}.{nanopore}_{node_id}_length_{len(seq)}"
-                edge_to_new[edge_id] = new_id
-                out_map.write(f"{edge_id}\t{new_id}\t{len(seq)}\n")
-                out_fa.write(f">{new_id}\n{seq}\n")
-                fasta_renamed += 1
+        flye_to_minto = {}
+        with open(input.renaming, "r") as in_map:
+            for line in in_map:
+                line = line.strip()
+                words = line.split()
+                if len(words) < 2:
+                    continue
+                flye_id, minto_id = words[0], words[1]
+                flye_to_minto[flye_id] = minto_id
 
         # read GraphMB cluster assignment and normalize to MIntO style
         # <clustername>\t<contigname>
@@ -522,10 +516,10 @@ rule graphmb_tsv:
                 if len(words) < 2:
                     continue
                 edge_id, bin_id = words[0], words[1]
-                if edge_id not in edge_to_new:
+                if edge_id not in flye_to_minto:
                     missing.add(edge_id)
                     continue
-                out.write(f"{bin_id}\t{edge_to_new[edge_id]}\n")
+                out.write(f"{bin_id}\t{flye_to_minto[edge_id]}\n")
                 assigned += 1
 
         # log status
@@ -545,7 +539,6 @@ rule graphmb_tsv:
                 lg.write("No GraphMB bin assignments were written")
                 raise ValueError("No GraphMB bin assignments were written")
             else:
-                lg.write("Number of fasta records renamed: {fasta_renamed}\n")
                 lg.write("Number of GraphMB assignments read: {}\n".format(assigned + len(missing)))
                 lg.write("Number of GraphMB assignments written: {assigned}\n")
                 lg.write("Number of missing ids: {}\n".format(len(missing)))
@@ -554,8 +547,8 @@ rule graphmb_tsv:
 # this is on vamb, if there are other binners, depending on the output, the bins should be processed differently
 rule make_graphmb_mags:
     input:
-        tsv          = rules.graphmb_tsv.output.tsv,
-        contigs_file = rules.graphmb_tsv.output.fasta
+        tsv      = rules.graphmb_tsv.output.tsv,
+        fasta    = lambda wildcards: graphmb_prep_file(wildcards, "assembly.renamed.fasta")
     output:
         discarded_genomes = "{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/discarded_genomes.txt",
         bin_folder = directory("{wd}/{omics}/8-1-binning/{mag_dir}/graphmb/{binner}/bins")
@@ -575,8 +568,9 @@ rule make_graphmb_mags:
             mkdir -p {output.bin_folder}
             python {script_dir}/take_all_genomes.py \
                     --vamb_cluster_tsv {input.tsv} \
-                    --contigs_file {input.contigs_file} \
+                    --contigs_file {input.fasta} \
                     --binning_method_name graphmb \
+                    --binsplit_char _EDGE \
                     --min_fasta_length {params.min_mag_length} \
                     --output_folder {output.bin_folder} \
                     --discarded_genomes_info {output.discarded_genomes}
