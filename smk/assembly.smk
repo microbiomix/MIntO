@@ -624,9 +624,9 @@ if len(nanopore_samples) > 0:
     ###############################################################################################
     rule dnaapler_reorient_edges:
         input:
-            gfa  = rules.nanopore_assembly_metaflye.output.gfa,
+            gfa = rules.nanopore_assembly_metaflye.output.gfa,
         output:
-            gfa  = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.dnaapler.gfa"
+            gfa = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.dnaapler.gfa"
         shadow:
             "minimal"
         log:
@@ -665,7 +665,7 @@ if len(nanopore_samples) > 0:
 
     rule extract_gfa_edge_info_fasta:
         input:
-            gfa = rules.dnaapler_reorient_edges.output.gfa,
+            gfa   = rules.dnaapler_reorient_edges.output.gfa,
         output:
             fasta = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.fasta",
             info  = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph_info.txt"
@@ -893,7 +893,7 @@ if len(nanopore_samples) > 0:
                         dnaapler_notes[base_id] = header_parts[1]
 
         # Step 3: Parse polished Medaka file, combining and reapplying metadata tags
-        with open(output.final_fasta, 'w') as out:
+        with open(output.final_fasta, 'w') as out_fa, open(output.name_mapping, 'w') as out_mapping:
             fiter = fasta_iter(input.medaka_fasta)
             for entry in fiter:
                 header, seq = entry
@@ -916,9 +916,15 @@ if len(nanopore_samples) > 0:
                 if base_id in dnaapler_notes:
                     new_header = f"{new_header} {dnaapler_notes[base_id]}"
 
+                # Final header!
+                new_header = f"MetaFlye.{wildcards.assembly_preset}.{wildcards.nanopore}_{new_header}"
+
+                # Write mapping
+                out_mapping.write(f"{base_id}\t{new_header}\n")
+
                 # Write sequence out
-                out.write(f">MetaFlye.{wildcards.assembly_preset}.{wildcards.nanopore}_{new_header}\n")
-                out.write(seq+"\n")
+                out_fa.write(f">{new_header}\n")
+                out_fa.write(seq+"\n")
 
     ###############################################################################################
     # This rule identifies contigs marked circular in assembly_info.txt.
@@ -933,6 +939,7 @@ if len(nanopore_samples) > 0:
             circ_info      = rules.nanopore_assembly_metaflye.output.info,
         output:
             final_fasta    = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.nodes.fasta",
+            name_mapping   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.nodes.renaming.tsv",
         run:
             mark_circular_seq(wildcards, input, output, seq_type="NODE")
 
@@ -949,5 +956,6 @@ if len(nanopore_samples) > 0:
             circ_info      = rules.extract_gfa_edge_info_fasta.output.info,
         output:
             final_fasta    = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.fasta",
+            name_mapping   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.renaming.tsv",
         run:
             mark_circular_seq(wildcards, input, output, seq_type="EDGE")

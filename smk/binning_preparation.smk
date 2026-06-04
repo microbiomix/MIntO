@@ -940,11 +940,15 @@ if len(nano_samples) > 0:
 
     rule prepare_graphmb_edge_files:
         input:
-            fasta = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.fasta",
-            gfa = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.gfa"
+            fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.fasta",
+            renamed = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.fasta",
+            mapping = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.renaming.tsv",
+            gfa     = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.gfa"
         output:
-            fasta = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.fasta",
-            gfa   = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_graph.gfa"
+            fasta   = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.fasta",
+            renamed = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.renamed.fasta",
+            mapping = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.edges.renaming.tsv",
+            gfa     = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_graph.gfa"
         wildcard_constraints:
             min_length = r'\d+'
         log:
@@ -959,6 +963,8 @@ if len(nano_samples) > 0:
             time (
                 ln --force {input.gfa} {output.gfa}
                 ln --force {input.fasta} {output.fasta}
+                ln --force {input.mapping} {output.mapping}
+                ln --force {input.renamed} {output.renamed}
             ) >& {log}
             """
 
