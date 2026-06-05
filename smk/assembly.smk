@@ -626,7 +626,7 @@ if len(nanopore_samples) > 0:
         input:
             gfa = rules.nanopore_assembly_metaflye.output.gfa,
         output:
-            gfa = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly.dnaapler.gfa"
+            gfa = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.gfa"
         shadow:
             "minimal"
         log:

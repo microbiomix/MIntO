@@ -943,7 +943,7 @@ if len(nano_samples) > 0:
             fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.fasta",
             renamed = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.fasta",
             mapping = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.renaming.tsv",
-            gfa     = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.gfa"
+            gfa     = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.gfa"
         output:
             fasta   = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.fasta",
             renamed = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.renamed.fasta",
