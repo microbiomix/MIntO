@@ -39,8 +39,6 @@ snakefile_name = print_versions.get_smk_filename()
 host_genome_path  = validate_required_key(config, 'PATH_host_genome')
 host_genome_name  = validate_required_key(config, 'NAME_host_genome')
 local_cache_dir   = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
-metaphlan_version = validate_required_key(config, 'metaphlan_version')
-motus_version     = validate_required_key(config, 'motus_version')
 
 ##############################################
 # For ILLUMINA and/or NANOPORE:
@@ -142,6 +140,9 @@ if len(ilmn_samples) > 0:
     ##############################################
     # taxonomy
     ##############################################
+
+    metaphlan_version = validate_required_key(config, 'metaphlan_version')
+    motus_version     = validate_required_key(config, 'motus_version')
 
     TAXA_threads = validate_required_key(config, 'TAXA_threads')
     TAXA_memory  = validate_required_key(config, 'TAXA_memory')
@@ -1290,33 +1291,13 @@ omics: {wildcards.omics}
 minto_dir: {minto_dir}
 METADATA: {input.metadata}
 
+# Should I cache contig DB in each node for subsequent jobs to reuse?
+# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
+LOCAL_DATABASE_CACHE_DIR: None
+
 ###############################
 # Input data
 ###############################
-
-# HYBRID section:
-# ---------------
-# MetaSPAdes hybrid assembly will be performed using these definitions.
-# Definition format:
-#   Each nanopore sample is in the LHS, and corresponding illumina sample(s) are in RHS (delimited by '+').
-#   Hybrid assemblies will be performed for each combination of nanopore and illumina samples.
-#   E.g.:
-#
-#   N1: I3+I4
-#
-#   The above will result in 2 hybrid assemblies: 'N1-I3' and 'N1-I4'
-#
-#   This definition was designed based on our practice of pooling multiple samples derived from the same
-#   donor for nanopore sequencing to strike a balance between price and sensitivity. If your nanopore samples
-#   are paired one-to-one with illumina samples, then the definition gets simpler.
-#   E.g.:
-#
-#   N1: I3
-#   N2: I4
-#
-#   The above will result in 2 hybrid assemblies: 'N1-I3' and 'N2-I4'
-#
-#HYBRID:
 
 ___EOF___
 """
@@ -1342,16 +1323,10 @@ rule assembly_config_illumina:
     shell:
         """
         cat > {output} <<___EOF___
+######################
+# ILLUMINA assembler settings
+######################
 
-######################
-# Analysis settings
-######################
-
-MAIN_factor: {main_factor}
-
-######################
-# Assembler settings
-######################
 # MetaSPAdes settings
 #
 METASPADES_qoffset: auto
@@ -1463,6 +1438,7 @@ write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, se
 ___EOF___
 fi
 
+        echo "" >> {output}
         echo {params.illumina_samples_plus_delimited_string} >& {log}
         """
 
@@ -1478,7 +1454,7 @@ rule assembly_config_nanopore:
         merge_nanopore_samples_directive = '\n'.join([" {} : {}".format(i, merged_nanopore_samples[i]) for i in merged_nanopore_samples.keys()])
     resources:
         mem=2
-    threads: 2
+    threads: 1
     log:
         "{wd}/logs/{omics}/config_yml_assembly.nanopore.log"
     conda:
@@ -1486,9 +1462,8 @@ rule assembly_config_nanopore:
     shell:
         """
         cat > {output} <<___EOF___
-
 ######################
-# Assembler settings
+# NANOPORE assembler settings
 ######################
 
 # MetaFlye settings
@@ -1554,10 +1529,52 @@ NANOPORE_MERGE_SAMPLES:
 #
 NANOPORE_SAMPLES:
 {params.nanopore_samples_yaml}
+
 ___EOF___
 
         echo {params.nanopore_samples_string} >& {log}
         """
+
+rule assembly_config_hybrid:
+    localrule: True
+    input:
+        metadata=metadata
+    output:
+        config_file=temp("{wd}/{omics}/assembly.yaml.hybrid")
+    resources:
+        mem=2
+    threads: 1
+    log:
+        "{wd}/logs/{omics}/config_yml_assembly.hybrid.log"
+    shell:
+        """
+        cat > {output} <<___EOF___
+# HYBRID section:
+# ---------------
+# MetaSPAdes hybrid assembly will be performed using these definitions.
+# Definition format:
+#   Each nanopore sample is in the LHS, and corresponding illumina sample(s) are in RHS (delimited by '+').
+#   Hybrid assemblies will be performed for each combination of nanopore and illumina samples.
+#   E.g.:
+#
+#   N1: I3+I4
+#
+#   The above will result in 2 hybrid assemblies: 'N1-I3' and 'N1-I4'
+#
+#   This definition was designed based on our practice of pooling multiple samples derived from the same
+#   donor for nanopore sequencing to strike a balance between price and sensitivity. If your nanopore samples
+#   are paired one-to-one with illumina samples, then the definition gets simpler.
+#   E.g.:
+#
+#   N1: I3
+#   N2: I4
+#
+#   The above will result in 2 hybrid assemblies: 'N1-I3' and 'N2-I4'
+#
+#HYBRID:
+
+___EOF___
+"""
 
 rule assembly_config_binning:
     localrule: True
@@ -1573,7 +1590,6 @@ rule assembly_config_binning:
     shell:
         """
         cat > {output} <<___EOF___
-
 ###############################
 # Binning preparation settings
 ###############################
@@ -1615,10 +1631,6 @@ NANOPORE_ALIGNER_threads: 10
 # Memory listed below is PER-THREAD, so please make sure you have enough
 SAMTOOLS_sort_perthread_memgb: 10
 
-# Should I cache contig DB in each node for subsequent jobs to reuse?
-# If you are on NFS, highly recommended to provide a local scratch location available on all nodes
-LOCAL_DATABASE_CACHE_DIR: None
-
 ___EOF___
         """
 
@@ -1643,10 +1655,12 @@ def get_assembly_config_pieces(wildcards):
         results.append(f"{wd}/{omics}/assembly.yaml.illumina")
     if len(nano_samples) > 0:
         results.append(f"{wd}/{omics}/assembly.yaml.nanopore")
+    if len(ilmn_samples) > 0 and len(nano_samples) > 0:
+        results.append(f"{wd}/{omics}/assembly.yaml.hybrid")
     results.append(f"{wd}/{omics}/assembly.yaml.binning")
     return(results)
 
-rule qc2_filter_config_yml_assembly:
+rule assembly_config_combine:
     localrule: True
     input:
         ready  = processing_done,

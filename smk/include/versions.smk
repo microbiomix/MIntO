@@ -217,7 +217,8 @@ rule QC_2_motus:
 rule QC_2_rpkg:
     localrule: True
     input:
-        "{wd}/output/versions/QC_2_motus.flag"
+        "{wd}/output/versions/QC_2_base.flag",
+        lambda wildcards: "{wd}/output/versions/QC_2_motus.flag" if validate_optional_key(config, "ILLUMINA_SAMPLES") else list()
     output:
         temp("{wd}/output/versions/QC_2.flag")
     params:
