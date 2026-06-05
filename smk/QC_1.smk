@@ -674,12 +674,57 @@ if len(ilmn_samples) > 0:
         shell:
             """
             cat > {output.config_file} <<___EOF___
-
 #########################
 # Read length filtering
 #########################
 
 ILLUMINA_READ_minlen: $(cat {input.cutoff_file})
+
+# Which aligner or mapper to use for ILLUMINA: 'bwa' or 'strobealign' is supported
+
+ILLUMINA_ALIGNER_type: bwa
+ILLUMINA_ALIGNER_threads: 8
+
+#########################
+# K-mer based comparison
+#########################
+
+# FracMinHash comparisons by sourmash
+# SOURMASH_min_abund - Minimum count of each k-mer for filtering the sketch (integer)
+# SOURMASH_max_abund - Maximum count of each k-mer for filtering the sketch (integer)
+# SOURMASH_cutoff    - Dissimilarity cutoff for subclusters via hierarchical clustering
+
+SOURMASH_min_abund: 2
+SOURMASH_max_abund: 1000
+SOURMASH_cutoff: 0.40
+
+##################################
+# Assembly-free taxonomy profiling
+##################################
+
+# Following values for 'TAXA_profiler' are supported:
+#    1. metaphlan - relative abundance using MetaPhlAn
+#    2. motus_raw - read counts using mOTUs
+#    3. motus_rel - relative abundance using mOTUs
+# Comma-delimited combination of multiple options also supported
+# Eg:
+#    TAXA_profiler: metaphlan,motus_rel
+TAXA_threads: 8
+TAXA_memory: 15
+TAXA_profiler: motus_rel,metaphlan
+metaphlan_version: 4.2.2
+motus_version: 3.1.0
+
+# ILLUMINA_SAMPLES section:
+# -----------------
+# List of illumina samples that will be filtered by read length.
+#
+# E.g.:
+# - S1
+# - S2
+
+ILLUMINA_SAMPLES:
+$(for i in {params.sample_list}; do echo "- '$i'"; done)
 
 ######################
 # Optionally, do you want to merge replicates or make pseudo samples
@@ -703,25 +748,42 @@ ILLUMINA_READ_minlen: $(cat {input.cutoff_file})
 # Having extra entries in METADATA file does not affect you in any way.
 # Therefore, it is safe to have metadata recorded for
 # rep2a, rep2b, rep2c, sample2 from the beginning.
+#
+# If you want to use only the merged samples sample1 and sample2 for profiling,
+# assembly etc, and skip the individual replicates, you can set:
+#
+# ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS: True
+#
 ######################
 
 ILLUMINA_MERGE_SAMPLES_REMOVE_CONTRIBUTORS: {params.remove_merged_samples}
+
 ILLUMINA_MERGE_SAMPLES:
 {params.merge_samples_directive}
+___EOF___
 
-# ILLUMINA_SAMPLES section:
-# -----------------
-# List of illumina samples that will be filtered by read length.
-#
-# E.g.:
-# - S1
-# - S2
+            echo "ILLUMINA_SAMPLES: {params.sample_list}" >& {log}
+            """
 
-ILLUMINA_SAMPLES:
-$(for i in {params.sample_list}; do echo "- '$i'"; done)
+    rule qc2_config_yml_file_illumina_metaT:
+        localrule: True
+        output:
+            config_file=temp("{wd}/{omics}/QC_2.yaml.illumina.metaT")
+        log:
+            "{wd}/logs/{omics}/qc2_config_yml_file.illumina.metaT.log"
+        shell:
+            """
+            cat > {output.config_file} <<___EOF___
+#########################
+# Ribosomal RNA depletion
+#########################
+
+sortmeRNA_threads: 8
+sortmeRNA_memory: 10
+sortmeRNA_db: {minto_dir}/data/rRNA_databases
+sortmeRNA_db_idx: {minto_dir}/data/rRNA_databases/idx
 
 ___EOF___
-            echo "ILLUMINA_SAMPLES: {params.sample_list}" >& {log}
             """
 
 ###############################################################################################
@@ -783,6 +845,22 @@ if len(nano_samples) > 0:
 
 NANOPORE_READ_minlen: 500
 
+# Which aligner or mapper to use for NANOPORE: 'minimap2' is supported
+
+NANOPORE_ALIGNER_type: minimap2
+NANOPORE_ALIGNER_threads: 8
+
+# NANOPORE_SAMPLES section:
+# -----------------
+# List of nanopore samples that will be filtered by read length.
+#
+# E.g.:
+# - S1
+# - S2
+
+NANOPORE_SAMPLES:
+$(for i in {params.sample_list}; do echo "- '$i'"; done)
+
 ######################
 # Optionally, if you want to merge replicates or make pseudo samples
 # E.g:
@@ -805,22 +883,18 @@ NANOPORE_READ_minlen: 500
 # Having extra entries in METADATA file does not affect you in any way.
 # Therefore, it is safe to have metadata recorded for
 # rep2a, rep2b, rep2c, sample2 from the beginning.
+#
+# If you want to use only the merged samples sample1 and sample2 for profiling,
+# assembly etc, and skip the individual replicates, you can set:
+#
+# NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS: True
+#
 ######################
 
 NANOPORE_MERGE_SAMPLES_REMOVE_CONTRIBUTORS: {params.remove_merged_samples}
 NANOPORE_MERGE_SAMPLES:
 {params.merge_samples_directive}
 
-# NANOPORE_SAMPLES section:
-# -----------------
-# List of nanopore samples that will be filtered by read length.
-#
-# E.g.:
-# - S1
-# - S2
-
-NANOPORE_SAMPLES:
-$(for i in {params.sample_list}; do echo "- '$i'"; done)
 ___EOF___
 
             echo "NANOPORE_SAMPLES: {params.sample_list}" >& {log}
@@ -881,89 +955,23 @@ NAME_host_genome: None
 
 LOCAL_DATABASE_CACHE_DIR: None
 
-# Which aligner or mapper to use for ILLUMINA: 'bwa' or 'strobealign' is supported
-
-ILLUMINA_ALIGNER_type: bwa
-ILLUMINA_ALIGNER_threads: 8
-
-# Which aligner or mapper to use for NANOPORE: 'minimap2' is supported
-
-NANOPORE_ALIGNER_type: minimap2
-NANOPORE_ALIGNER_threads: 8
-___EOF___
-
-            # Generate part2 of config file
-            if [ "{omics}" == "metaT" ]; then
-                cat >> {output.config_file} <<___EOF___
-
-#########################
-# Ribosomal RNA depletion
-#########################
-
-sortmeRNA_threads: 8
-sortmeRNA_memory: 10
-sortmeRNA_db: {minto_dir}/data/rRNA_databases
-sortmeRNA_db_idx: {minto_dir}/data/rRNA_databases/idx
-___EOF___
-
-            fi
-
-            # Generate part3 of config file
-            cat >> {output.config_file} <<___EOF___
-
-##################################
-# Assembly-free taxonomy profiling
-##################################
-
-# Following values for 'TAXA_profiler' are supported:
-#    1. metaphlan - relative abundance using MetaPhlAn
-#    2. motus_raw - read counts using mOTUs
-#    3. motus_rel - relative abundance using mOTUs
-# Comma-delimited combination of multiple options also supported
-# Eg:
-#    TAXA_profiler: metaphlan,motus_rel
-TAXA_threads: 8
-TAXA_memory: 15
-TAXA_profiler: motus_rel,metaphlan
-metaphlan_version: 4.2.2
-motus_version: 3.1.0
-
-#########################
-# K-mer based comparison
-#########################
-
-# FracMinHash comparisons by sourmash
-# SOURMASH_min_abund - Minimum count of each k-mer for filtering the sketch (integer)
-# SOURMASH_max_abund - Maximum count of each k-mer for filtering the sketch (integer)
-# SOURMASH_cutoff    - Dissimilarity cutoff for subclusters via hierarchical clustering
-
-SOURMASH_min_abund: 2
-SOURMASH_max_abund: 1000
-SOURMASH_cutoff: 0.40
-
 #####################
 # Analysis parameters
 #####################
 
-# MAIN_factor  - the main factor in the metadata file to differentiate in visualization (using color)
-# PLOT_factor2 - the second factor in the metadata file to differentiate in visualization (using shape)
-# PLOT_time    - name of the factor in the metadata file denoting time (e.g. hour, day)
+# MAIN_factor  - (required) the main factor in the metadata file to differentiate in visualization (using color)
+# PLOT_factor2 - (optional) the second factor in the metadata file to differentiate in visualization (using shape)
+# PLOT_time    - (optional) name of the factor in the metadata file denoting time (e.g. hour, day)
+# COAS_factor  - (optional) a factor/attribute to use to group samples for co-assembly of ILLUMINA samples
 
 MAIN_factor:
 PLOT_factor2:
 PLOT_time:
-
-#####################
-# Co-assembly grouping
-#####################
-
-# COAS_factor - The factor/attribute to use to group samples for co-assembly
-
 COAS_factor:
 
-######################
-# Input data
-######################
+##################################
+# Sequencing-tech--dependent data
+##################################
 
 ___EOF___
         """
@@ -984,6 +992,8 @@ def get_qc2_config_pieces(wildcards):
     results.append(f"{wd}/{omics}/QC_2.yaml.core")
     if len(ilmn_samples) > 0:
         results.append(f"{wd}/{omics}/QC_2.yaml.illumina")
+        if omics == "metaT":
+            results.append(f"{wd}/{omics}/QC_2.yaml.illumina.metaT")
     if len(nano_samples) > 0:
         results.append(f"{wd}/{omics}/QC_2.yaml.nanopore")
     return(results)
