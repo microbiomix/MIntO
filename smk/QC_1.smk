@@ -615,9 +615,15 @@ if len(ilmn_samples) > 0:
         threads:
             2
         shell:
-            """
+            r"""
             time (
-                sh -c 'gzip -cd {input.pairead} | awk -v f="{wildcards.sample}_{wildcards.group}" "{{if(NR%4==2) print length(\$1),f}}" | sort -n | uniq -c > {output.length}'
+                gzip -cd {input.pairead} | \
+                    awk -v f="{wildcards.sample}_{wildcards.group}" '
+                       NR%4==2 {{ count[length($0)]++ }}
+                       END {{
+                          for (len in count) print count[len], len, f
+                       }}
+                    ' > {output.length}
             ) >& {log}
             """
 
