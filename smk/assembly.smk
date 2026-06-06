@@ -809,6 +809,8 @@ if len(nanopore_samples) > 0:
     # mem_usage
     # Regression: max_mem_kb = 1.214e06 + 4.863e-02*len(input.contigs)
     # On top, it gets a baseline 5GB and every new attempt gets 5GB more.
+    # We first get the contig fasta locally so that medaka's internal logic
+    # to create minimap index will stay in the shadow directory only.
     rule medaka_consensus_nodes:
         input:
             contigs = rules.dnaapler_reorient_nodes.output.fasta,
@@ -831,7 +833,8 @@ if len(nanopore_samples) > 0:
         shell:
             """
             time (
-                medaka_consensus -i {input.reads} -d {input.contigs} -o out -t {threads} {params.model}
+                rsync {input.contigs} assembly.fasta
+                medaka_consensus -i {input.reads} -d assembly.fasta -o out -t {threads} {params.model}
                 rsync -a out/consensus.fasta {output.fasta}
             ) >& {log}
             """
