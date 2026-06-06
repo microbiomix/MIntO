@@ -321,6 +321,7 @@ def merged_sample_output():
 def next_step_config_yml_output():
     result = list()
     result.append(f"{working_dir}/{omics}/assembly.yaml")
+    result.append(f"{working_dir}/{omics}/annotation.yaml")
     if len(ilmn_samples) > 0:
         result.append(f"{working_dir}/{omics}/mapping.yaml")
     return(result)
@@ -1681,6 +1682,90 @@ rule assembly_config_combine:
 # Generate configuration yml file for Alignment, normalization and integration step
 ###############################################################################################
 
+rule annotation_config_yml:
+    localrule: True
+    input:
+        asm_yaml  = rules.assembly_config_combine.output.config_file,
+        metadata  = metadata
+    output:
+        config_file = "{wd}/{omics}/annotation.yaml"
+    params:
+        main_factor  = validate_optional_key(config, 'MAIN_factor') or "",
+        plot_factor2 = validate_optional_key(config, 'PLOT_factor2') or "",
+        plot_time    = validate_optional_key(config, 'PLOT_time') or "",
+    resources:
+        mem=2
+    threads: 1
+    log:
+        "{wd}/logs/{omics}/config_yml_annotation.log"
+    shell:
+        """
+        cat > {output} <<___EOF___
+######################
+# General settings
+######################
+PROJECT: {project_id}
+working_dir: {wildcards.wd}
+omics: {wildcards.omics}
+minto_dir: {minto_dir}
+METADATA: {input.metadata}
+
+######################
+# Analysis settings
+######################
+
+MAIN_factor: {params.main_factor}
+PLOT_factor2: {params.plot_factor2}
+PLOT_time: {params.plot_time}
+
+######################
+# Annotation settings
+######################
+
+# Set MIntO mode
+# Where should we map reads to? MAG, refgenome, catalog
+MINTO_MODE: MAG
+
+# Which omics for MAGs?
+MAG_omics: metaG
+
+# path to gene catalog fasta file or refgenome directory
+PATH_reference:
+
+# file name of gene catalog fasta file (MIntO will generate bwa index with same name)
+NAME_reference:
+
+# List of software used to perform genome function annotation:
+# - dbCAN
+# - kofam
+# - eggNOG
+ANNOTATION:
+ - dbCAN
+ - kofam
+ - eggNOG
+
+##########################
+# Genome taxonomy settings
+##########################
+#
+RUN_TAXONOMY: yes
+TAXONOMY_NAME: phylophlan,gtdb  # Currently, phylophlan or gtdb or combination
+TAXONOMY_CPUS: 8
+TAXONOMY_memory: 110
+
+# Taxonomy database versions
+#
+PHYLOPHLAN_TAXONOMY_VERSION: SGB.Jun23
+GTDB_TAXONOMY_VERSION: r226
+
+___EOF___
+
+        """
+
+###############################################################################################
+# Generate configuration yml file for Alignment, normalization and integration step
+###############################################################################################
+
 rule qc2_filter_config_yml_mapping:
     localrule: True
     input:
@@ -1692,8 +1777,8 @@ rule qc2_filter_config_yml_mapping:
     output:
         config_file="{wd}/{omics}/mapping.yaml"
     params:
-        illumina_samples_yaml='\n'.join(["- '{}'".format(i) for i in nonredundant_ilmn_samples]),
-        illumina_samples_string=', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
+        illumina_samples_yaml   = '\n'.join(["- '{}'".format(i) for i in nonredundant_ilmn_samples]),
+        illumina_samples_string = ', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
     resources:
         mem=2
     threads: 2
