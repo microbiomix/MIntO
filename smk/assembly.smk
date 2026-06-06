@@ -840,35 +840,18 @@ if len(nanopore_samples) > 0:
     # Polish dnaapler-reoriented flye gfa edge_fasta using medaka
     ###############################################################################################
 
-    # mem_usage
-    # Regression: max_mem_kb = 1.214e06 + 4.863e-02*len(input.contigs)
-    # On top, it gets a baseline 5GB and every new attempt gets 5GB more.
-    rule medaka_consensus_edges:
+    use rule medaka_consensus_nodes as medaka_consensus_edges with:
         input:
             contigs = rules.extract_gfa_edge_info_fasta.output.fasta,
             reads   = "{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz",
         output:
             fasta   = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.medaka.fasta"
-        shadow:
-            "minimal"
         log:
             "{wd}/logs/{omics}/7-assembly/{nanopore}/{assembly_preset}/medaka_consensus_edges.log"
-        params:
-            model = MEDAKA_INFERENCE_MODEL if MEDAKA_INFERENCE_MODEL is not None else ""
-        threads:
-            4
-        resources:
-            mem=lambda wildcards, input, attempt: 1.22 + 5e-8*len(input.contigs) + 5*attempt,
-            gpu=1
-        conda:
-            minto_dir + "/envs/ont_polishing.yml"
-        shell:
-            """
-            time (
-                medaka_consensus -i {input.reads} -d {input.contigs} -o out -t {threads} {params.model}
-                rsync -a out/consensus.fasta {output.fasta}
-            ) >& {log}
-            """
+
+    ###############################################################################################
+    # Common function to mark circular contigs in fasta header based on graph info txt files
+    ###############################################################################################
 
     def mark_circular_seq(wildcards, input, output, seq_type):
         # Step 1: Read circularity info file to find structurally circular sequences
@@ -927,7 +910,7 @@ if len(nanopore_samples) > 0:
                 out_fa.write(seq+"\n")
 
     ###############################################################################################
-    # This rule identifies contigs marked circular in assembly_info.txt.
+    # This rule identifies contigs marked circular in Flye-generated assembly_info.txt.
     # It appends '_circularA' to the fasta header.
     # For dnaapler rotated contigs, it also retains the fasta comment added by dnaapler
     ###############################################################################################
@@ -944,7 +927,7 @@ if len(nanopore_samples) > 0:
             mark_circular_seq(wildcards, input, output, seq_type="NODE")
 
     ###############################################################################################
-    # This rule identifies contigs marked circular in assembly_info.txt.
+    # This rule identifies edges marked circular in MIntO-generated assembly_graph_info.txt.
     # It appends '_circularA' to the fasta header.
     # For dnaapler rotated contigs, it also retains the fasta comment added by dnaapler
     ###############################################################################################
