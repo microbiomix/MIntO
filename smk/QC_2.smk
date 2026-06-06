@@ -571,9 +571,9 @@ if len(ilmn_samples) > 0:
     # main rule: metaG - output is not temporary
     rule qc2_host_filter_illumina:
         input:
-            fasta      = f"{host_genome_path}/{host_genome_name}",
-            pairead_fw = rules.qc2_length_illumina.output.paired1,
-            pairead_rv = rules.qc2_length_illumina.output.paired2,
+            fasta       = f"{host_genome_path}/{host_genome_name}",
+            pairead_fwd = rules.qc2_length_illumina.output.paired1,
+            pairead_rev = rules.qc2_length_illumina.output.paired2,
             hostindex   = lambda wildcards: get_fasta_index_path(f"{host_genome_path}/{host_genome_name}", ILLUMINA_ALIGNER_type),
             meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
         output:
@@ -610,7 +610,7 @@ if len(ilmn_samples) > 0:
             # Remove the index file extension to get db_name argument and run aligner
             if [[ "{ILLUMINA_ALIGNER_type:q}" == "bwa" ]]; then
                 db_name=${{db_name%.0123}}
-                time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                time (bwa-mem2 mem -t {threads} -v 3 $db_name {input.pairead_fwd:q} {input.pairead_rev:q} \
                     | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
                     | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
                 rsync -a * $remote_dir/
@@ -618,7 +618,7 @@ if len(ilmn_samples) > 0:
             elif [[ "{ILLUMINA_ALIGNER_type:q}" == "strobealign" ]]; then
                 r_arg="$(cat {input.meanlen_txt})"
                 db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
-                time (strobealign --use-index -r $r_arg -t {threads} $db_name {input.pairead_fw:q} {input.pairead_rv:q} \
+                time (strobealign --use-index -r $r_arg -t {threads} $db_name {input.pairead_fwd:q} {input.pairead_rev:q} \
                     | msamtools filter -S -l 30 --invert --keep_unmapped -bu - \
                     | samtools fastq -1 $(basename {output.host_free_fw:q}) -2 $(basename {output.host_free_rv:q}) -s /dev/null -c 6 -N -
                 rsync -a * $remote_dir/
@@ -631,8 +631,8 @@ if len(ilmn_samples) > 0:
     # derived rule: metaT - output is temporary
     use rule qc2_host_filter_illumina as qc2_host_filter_illumina_metaT with:
         output:
-            host_free_fwd=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz"),
-            host_free_rev=temp("{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz"),
+            host_free_fw = temp("{wd}/{omics}/4-hostfree/{sample}/{run}.1.fq.gz"),
+            host_free_rv = temp("{wd}/{omics}/4-hostfree/{sample}/{run}.2.fq.gz"),
         wildcard_constraints:
             omics='metaT'
 
@@ -657,7 +657,7 @@ if len(ilmn_samples) > 0:
 
         rule qc2_filter_rRNA_index:
             input:
-                rRNA_db=get_rRNA_db_files
+                rRNA_db = get_rRNA_db_files
             output:
                 rRNA_db_index_file = "{sortmeRNA_db_idx}/rRNA_db_index.log".format(sortmeRNA_db_idx=sortmeRNA_db_idx),
                 rRNA_db_index = directory(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
@@ -690,13 +690,13 @@ if len(ilmn_samples) > 0:
 
         rule qc2_filter_rRNA:
             input:
-                host_free_fwd=rules.qc2_host_filter_illumina.output.host_free_fwd,
-                host_free_rev=rules.qc2_host_filter_illumina.output.host_free_rev,
-                rRNA_db_index=ancient(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
+                host_free_fwd = rules.qc2_host_filter_illumina_metaT.output.host_free_fw,
+                host_free_rev = rules.qc2_host_filter_illumina_metaT.output.host_free_rv,
+                rRNA_db_index = ancient(expand("{sortmeRNA_db_idx}", sortmeRNA_db_idx=sortmeRNA_db_idx))
             output:
-                rRNA_out="{wd}/{omics}/5-1-sortmerna/{sample}/out/{run}.aligned.log",
-                rRNA_free_fw="{wd}/{omics}/5-1-sortmerna/{sample}/{run}.1.fq.gz",
-                rRNA_free_rv="{wd}/{omics}/5-1-sortmerna/{sample}/{run}.2.fq.gz"
+                rRNA_out     = "{wd}/{omics}/5-1-sortmerna/{sample}/out/{run}.aligned.log",
+                rRNA_free_fw = "{wd}/{omics}/5-1-sortmerna/{sample}/{run}.1.fq.gz",
+                rRNA_free_rv = "{wd}/{omics}/5-1-sortmerna/{sample}/{run}.2.fq.gz"
             shadow:
                 "minimal"
             params:
@@ -801,10 +801,10 @@ if len(ilmn_samples) > 0:
                                                     minto_dir=minto_dir,
                                                     version=wildcards.version,
                                                     metaphlan_index=metaphlan_index),
-            fwd=get_postcleaning_fastq_names_fwd_only,
-            rev=get_postcleaning_fastq_names_rev_only,
+            fwd = get_postcleaning_fastq_names_fwd_only,
+            rev = get_postcleaning_fastq_names_rev_only,
         output:
-            ra="{wd}/{omics}/6-taxa_profile/{sample}/{sample}.metaphlan.{version}.tsv"
+            ra  = "{wd}/{omics}/6-taxa_profile/{sample}/{sample}.metaphlan.{version}.tsv"
         shadow:
             "minimal"
         params:
@@ -1313,6 +1313,7 @@ rule assembly_config_illumina:
     params:
         illumina_samples_yaml='\n'.join(["- '{}'".format(i) for i in nonredundant_ilmn_samples]),
         illumina_samples_plus_delimited_string = '+'.join(["{}".format(i) for i in nonredundant_ilmn_samples]),
+        illumina_samples_comma_delimited_string = ', '.join(["'{}'".format(i) for i in nonredundant_ilmn_samples]),
         merge_illumina_samples_directive = '\n'.join([" {} : {}".format(i, merged_illumina_samples[i]) for i in merged_illumina_samples.keys()])
     resources:
         mem=2
@@ -1413,7 +1414,7 @@ library(dplyr)
 metadata <- read.table('{input.metadata}', sep="\\t", header=TRUE) %>%
     as.data.frame() %>%
     select(sample, {coas_factor}) %>%
-    filter(sample %in% c({params.sample_string})) %>%
+    filter(sample %in% c({params.illumina_samples_comma_delimited_string})) %>%
     group_by({coas_factor}) %>%
     filter(n() > 1) %>%
     mutate(co_asm = paste(sample, collapse = "+")) %>%
@@ -1423,7 +1424,7 @@ metadata <- read.table('{input.metadata}', sep="\\t", header=TRUE) %>%
 write.table(metadata, file="", col.names=FALSE, row.names=FALSE, quote=FALSE, sep=": ")
 ___EOF___
 
-if [[ ("metaG" == "{wildcards.omics}") && ({input.table} != {input.metadata}) ]]; then
+if [[ ("metaG" == "{wildcards.omics}") && ("{input.table}" != "{input.metadata}") ]]; then
         R --vanilla --silent --no-echo >> {output} <<___EOF___
 library(dplyr)
 metadata <- read.table('{input.table}', sep="\\t", header=TRUE) %>%
