@@ -1070,15 +1070,14 @@ minto_dir: {minto_dir}
 METADATA: {metadata}
 
 ######################
-# Program settings
-######################
 # COMMON PARAMETERS
-#
+######################
+
 MIN_FASTA_LENGTH: {params.min_fasta_length}
 MIN_MAG_LENGTH: 500000
 
 ######################
-# VAMB settings
+# binning settings
 ######################
 
 # BINNERS - VAMB flavors and their parameters are encoded as follows:
@@ -1092,14 +1091,25 @@ MIN_MAG_LENGTH: 500000
 BINNERS:
 {params.binners}
 
+######################
+# VAMB settings
+######################
+
+# Taxvamb annotator
+TAXVAMB_ANNOTATOR: metabuli
+METABULI_MEM_GB: 128
+
+# Threads
 VAMB_THREADS: 20
 
-# Use GPU in VAMB:
+# Use GPU in VAMB?
 # could be yes or no
 VAMB_GPU: no
 
+######################
 # GraphMB settings
-#
+######################
+
 GRAPHMB_THREADS: 16
 GRAPHMB_GPU: no
 GRAPHMB_EXTRA_ARGS: ""
@@ -1112,24 +1122,25 @@ NANOPORE_SAMPLES:
 METAFLYE_presets:
 {params.metaflye_presets_yaml}
 
-# Metabuli for taxvamb
-#
-TAXVAMB_ANNOTATOR: metabuli
-METABULI_MEM_GB: 128
-
+######################
 # CHECKM settings
-#
+######################
+
 CHECKM_COMPLETENESS: 90  # higher than this
 CHECKM_CONTAMINATION: 5  # lower than this
 CHECKM_BATCH_SIZE: 50    # Process MAGs with this batch size
 
+######################
 # COVERM settings
-#
+######################
+
 COVERM_THREADS: 8
 COVERM_memory: 5
 
-# SCORING THE BEST GENOMES settings
-#
+######################
+# How to choose the cluster representative?
+######################
+
 # this could be checkm or genome
 SCORE_METHOD: checkm
 " > {output.config_file}
