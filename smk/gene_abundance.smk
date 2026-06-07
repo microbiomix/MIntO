@@ -1062,7 +1062,7 @@ rule plot_maprate:
                                             omics = wildcards.omics,
                                             minto_mode = wildcards.minto_mode,
                                             identity = wildcards.identity),
-        fragcount=lambda wildcards: expand("{wd}/output/2-qc/{omics}.readcounts.txt",
+        fragcount=lambda wildcards: expand("{wd}/output/2-qc/{omics}.ILLUMINA.readcounts.txt",
                                             wd = wildcards.wd,
                                             omics = wildcards.omics)
     output:
