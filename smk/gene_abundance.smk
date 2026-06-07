@@ -69,6 +69,11 @@ for m in normalization_modes:
 identity = validate_required_key(config, 'alignment_identity')
 msamtools_filter_length = validate_required_key(config, 'msamtools_filter_length')
 
+# Annotations
+ANNOTATION = validate_required_key(config, 'ANNOTATION')
+for x in ANNOTATION:
+    check_allowed_values('ANNOTATION', x, ('dbCAN', 'kofam', 'eggNOG'))
+
 mag_omics = 'metaG'
 gene_catalog_path = None
 gene_catalog_name = None
@@ -1086,6 +1091,9 @@ rule config_yml_integration:
         config_file="{wd}/data_integration.yaml"
     params:
         mapped_reads_threshold=MIN_mapped_reads,
+        eggnog_features = '\n'.join(["- eggNOG.{}".format(i) for i in ["OGs", "PFAMs", "KEGG_Pathway", "KEGG_Module", "KEGG_KO"]]) if "eggNOG" in ANNOTATION else "",
+        kofam_features  = '\n'.join(["- kofam.{}".format(i) for i in ["KEGG_Pathway", "KEGG_Module", "KEGG_KO"]]) if "kofam" in ANNOTATION else "",
+        dbcan_features  = '\n'.join(["- dbCAN.{}".format(i) for i in ["EC", "binding_module", "subfamily", "Substrate"]]) if "dbCAN" in ANNOTATION else "",
     resources:
         mem=2
     threads: 1
@@ -1138,16 +1146,9 @@ ANNOTATION_file:
 # If MINTO_MODE is 'catalog', the names should match the ANNOTATION_file column names.
 
 ANNOTATION_ids:
- - eggNOG.OGs
- - eggNOG.PFAMs
- - dbCAN.EC
- - dbCAN.binding_module
- - dbCAN.subfamily
- - kofam.KEGG_Pathway
- - kofam.KEGG_Module
- - kofam.KEGG_KO
- - eggNOG.KEGG_Pathway
- - eggNOG.KEGG_Module
- - eggNOG.KEGG_KO" > {output.config_file}
+{params.eggnog_features}
+{params.dbcan_features}
+{params.kofam_features}
+" > {output.config_file}
 ) >& {log}
         """
