@@ -808,10 +808,10 @@ if len(nano_samples) > 0:
 
     rule filter_nanopore_reads:
         input:
-            ont="{wd}/{omics}/0-raw/{sample}/{sample}.nanopore.fq.gz"
+            ont = lambda wildcards: f"{raw_dir_nanopore}/{wildcards.sample}/{wildcards.sample}.nanopore.fq.gz"
         output:
-            summary="{wd}/{omics}/1-trimmed/{sample}/{sample}.NANOPORE.trim.summary",
-            ont="{wd}/{omics}/1-trimmed/{sample}/{sample}.nanopore.fq.gz"
+            summary = "{wd}/{omics}/1-trimmed/{sample}/{sample}.NANOPORE.trim.summary",
+            ont     = "{wd}/{omics}/1-trimmed/{sample}/{sample}.nanopore.fq.gz"
         log:
             "{wd}/logs/{omics}/1-trimmed/{sample}_qc1_nanopore_trimlog.log"
         shadow:
