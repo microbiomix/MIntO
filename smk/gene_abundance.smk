@@ -104,10 +104,10 @@ else:
                     print(f"NOTE: MIntO is using {gene_catalog_path}/{gene_catalog_name} as gene database.")
 
 valid_aligner_types = ['bwa', 'strobealign']
-ALIGNER_type = validate_required_key(config, 'ALIGNER_type')
-check_allowed_values('ALIGNER_type', ALIGNER_type, valid_aligner_types)
+ILLUMINA_ALIGNER_type = validate_required_key(config, 'ILLUMINA_ALIGNER_type')
+check_allowed_values('ILLUMINA_ALIGNER_type', ILLUMINA_ALIGNER_type, valid_aligner_types)
 
-ALIGNER_threads = validate_required_key(config, 'ALIGNER_threads')
+ILLUMINA_ALIGNER_threads = validate_required_key(config, 'ILLUMINA_ALIGNER_threads')
 local_cache_dir = validate_optional_key(config, 'LOCAL_DATABASE_CACHE_DIR')
 
 # Taxonomic profiles from mapping reads to MAGs or refgenomes
@@ -332,7 +332,7 @@ rule genome_mapping_bwa_profiling:
         identity   = r'\d+',
         minto_mode = r'MAG|refgenome'
     threads:
-        ALIGNER_threads
+        ILLUMINA_ALIGNER_threads
     resources:
         sort_threads = 3,
         bedcov_threads = lambda wildcards, threads: min(10, threads),
@@ -469,7 +469,7 @@ rule genome_mapping_sba_profiling:
         identity   = r'\d+',
         minto_mode = r'MAG|refgenome'
     threads:
-        ALIGNER_threads
+        ILLUMINA_ALIGNER_threads
     resources:
         sort_threads = 3,
         bedcov_threads = lambda wildcards, threads: min(10, threads),
@@ -596,7 +596,7 @@ rule gene_catalog_mapping_bwa_profiling:
         mapper = r'bwa',
         minto_mode = r'catalog'
     threads:
-        ALIGNER_threads
+        ILLUMINA_ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.bwaindex[0])),
@@ -681,7 +681,7 @@ rule gene_catalog_mapping_sba_profiling:
         mapper = r'strobealign',
         minto_mode = r'catalog'
     threads:
-        ALIGNER_threads
+        ILLUMINA_ALIGNER_threads
     params:
         staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
         final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
@@ -775,7 +775,7 @@ def get_msamtools_profiles(wildcards):
                             omics = wildcards.omics,
                             minto_mode = wildcards.minto_mode,
                             identity = wildcards.identity,
-                            mapper = ALIGNER_type,
+                            mapper = ILLUMINA_ALIGNER_type,
                             typespec = typespec,
                             sample = ilmn_samples)
     return(profiles)
@@ -807,7 +807,7 @@ rule merge_msamtools_profiles:
                             minto_mode = wildcards.minto_mode,
                             filename = wildcards.filename,
                             identity = wildcards.identity,
-                            mapper = ALIGNER_type,
+                            mapper = ILLUMINA_ALIGNER_type,
                             type = wildcards.type)
     output:
         combined="{wd}/{omics}/9-mapping-profiles/{minto_mode}/{filename}.p{identity}.{type}.tsv"
@@ -912,14 +912,14 @@ rule merge_gene_abund:
                     omics = wildcards.omics,
                     minto_mode = wildcards.minto_mode,
                     identity = wildcards.identity,
-                    mapper = ALIGNER_type,
+                    mapper = ILLUMINA_ALIGNER_type,
                     sample=ilmn_samples),
         filelist=lambda wildcards: expand("{wd}/{omics}/9-mapping-profiles/{minto_mode}/merge.gene_abundances.p{identity}.{mapper}.bed.list",
                     wd = wildcards.wd,
                     omics = wildcards.omics,
                     minto_mode = wildcards.minto_mode,
                     identity = wildcards.identity,
-                    mapper = ALIGNER_type)
+                    mapper = ILLUMINA_ALIGNER_type)
     output:
         combined="{wd}/{omics}/9-mapping-profiles/{minto_mode}/gene_abundances.p{identity}.bed"
     shadow:
@@ -1021,7 +1021,7 @@ rule read_map_stats:
                                             omics = wildcards.omics,
                                             minto_mode = wildcards.minto_mode,
                                             identity = wildcards.identity,
-                                            mapper = ALIGNER_type,
+                                            mapper = ILLUMINA_ALIGNER_type,
                                             sample=ilmn_samples)
     output:
         maprate= "{wd}/{omics}/9-mapping-profiles/{minto_mode}/mapping.p{identity}.maprate.txt",
