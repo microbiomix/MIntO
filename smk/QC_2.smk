@@ -564,7 +564,7 @@ if len(ilmn_samples) > 0:
             mem=2
         threads: 2
         run:
-            sba_mean_len = get_sba_mean_len(input.readlen_file)
+            sba_mean_len = get_sba_mean_len(input.readlen_file, params.read_length_cutoff)
             with open(output.meanlen_file, "w") as fp:
                 print(sba_mean_len, file = fp)
 

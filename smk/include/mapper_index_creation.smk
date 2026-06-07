@@ -10,15 +10,16 @@ include: 'resources.smk'
 
 # Ad hoc solution to get part of a output file sufix even if we don't have the file yet at the
 # start of QC_2. Other modules read it from "{working_dir}/output/2-qc/{omics}.mean_length.txt"
-def get_sba_mean_len(readlen_file):
-    sba_mean_len = 150
+def get_sba_mean_len(readlen_file, read_min_len):
+
     import pandas as pd
     df = pd.read_table(readlen_file, names = ['n_reads', 'len_reads', 'sample'], sep = '\s+')
+
+    sba_mean_len = 150
     try:
         df = df[df.len_reads > read_min_len]
         mean_len = int(sum(df.n_reads * df.len_reads)/df.n_reads.sum())
         # corresponding strobealign -r setting as per v0.16.1
-        sba_mean_len = 150
         if (mean_len <=  70):
             sba_mean_len = 50
         elif (mean_len <=  90):
@@ -36,18 +37,26 @@ def get_sba_mean_len(readlen_file):
         else:
             sba_mean_len = 500
     except NameError as e:
-        raise Exception("Read-distribution file empty")
+        raise Exception(f"Error occurred: {e}")
+
     return(sba_mean_len)
 
 def get_sba_rparam():
     meanlen_file = f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
     readlen_file = f"{working_dir}/{omics}/1-trimmed/samples_read_length.txt"
+    cutoff_file  = f"{working_dir}/{omics}/1-trimmed/QC_1_min_len_read_cutoff.txt"
+
+    # read length cutoff from QC_1
+    cutoff = 50
+    with open(cutoff_file, "r") as f:
+        cutoff = int(f.readline().rstrip())
+
     # after QC_2
     if os.path.exists(meanlen_file):
         sba_mean_len = open(meanlen_file, 'r').readline().strip()
     # in QC_2
     elif os.path.exists(readlen_file):
-        sba_mean_len = get_sba_mean_len(readlen_file)
+        sba_mean_len = get_sba_mean_len(readlen_file, cutoff)
     return(sba_mean_len)
 
 def get_fasta_index_path(fasta, mapper):
