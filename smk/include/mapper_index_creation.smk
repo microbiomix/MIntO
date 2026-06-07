@@ -41,6 +41,8 @@ def get_sba_mean_len(readlen_file, read_min_len):
 
     return(sba_mean_len)
 
+# We are generating filenames here not using arg passing, but from config variable
+# Future work should get rid of this hidden decision-making
 def get_sba_rparam():
     meanlen_file = f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
     readlen_file = f"{working_dir}/{omics}/1-trimmed/samples_read_length.txt"
