@@ -268,7 +268,7 @@ rule merge_runs_base:
     input:
         files=get_corrected_runs_for_sample
     output:
-        combined="{wd}/{omics}/6-corrected/{illumina}/{illumina}.{pair}.fq.gz"
+        combined="{wd}/{omics}/6-corrected/{illumina}/{illumina}.{pair}.fq.gz.impossible"
     wildcard_constraints:
         pair="1|2|nanopore"
     shadow:
