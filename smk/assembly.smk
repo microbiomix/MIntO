@@ -327,8 +327,8 @@ if len(ilmn_samples) > 0:
             """
             mkdir -p $(dirname {output.fwd})
             time (
-                rsync -a {input.reads[0]} {wildcards.run}.1.fq.gz
-                rsync -a {input.reads[1]} {wildcards.run}.2.fq.gz
+                rsync --copy-links {input.reads[0]} {wildcards.run}.1.fq.gz
+                rsync --copy-links {input.reads[1]} {wildcards.run}.2.fq.gz
                 {spades_script} --only-error-correction -1 {wildcards.run}.1.fq.gz -2 {wildcards.run}.2.fq.gz -t {threads} -m {resources.mem} -o {wildcards.run} --phred-offset {params.qoffset}
                 rsync -a {wildcards.run}/corrected/{wildcards.run}.1.fq00.0_0.cor.fastq.gz {output.fwd}; rsync -a {wildcards.run}/corrected/{wildcards.run}.2.fq00.0_0.cor.fastq.gz {output.rev}
             ) >& {log}
@@ -374,8 +374,8 @@ if len(ilmn_samples) > 0:
         shell:
             """
             time (
-                rsync -a {input.fwd} {wildcards.illumina}.1.fq.gz
-                rsync -a {input.rev} {wildcards.illumina}.2.fq.gz
+                rsync --copy-links {input.fwd} {wildcards.illumina}.1.fq.gz
+                rsync --copy-links {input.rev} {wildcards.illumina}.2.fq.gz
                 {spades_script} {params.asm_mode} --only-assembler -1 {wildcards.illumina}.1.fq.gz -2 {wildcards.illumina}.2.fq.gz -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
                 rsync -a outdir/contigs.fasta {output.cont_fa}
                 rsync -a outdir/contigs.paths {output.cont_pth}
