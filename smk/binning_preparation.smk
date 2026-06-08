@@ -246,7 +246,7 @@ if len(ilmn_samples) > 0:
 
     def get_assemblies_for_scaf_type(wildcards):
         if (wildcards.scaf_type == 'nanopore'):
-            asms = expand("{wd}/{omics}/7-assembly/{assembly}/{assembly_preset}/{assembly}.assembly.fasta",
+            asms = expand("{wd}/{omics}/7-assembly/{assembly}/{assembly_preset}/{assembly}.assembly.nodes.fasta",
                             wd = wildcards.wd,
                             omics = wildcards.omics,
                             assembly = assemblies[wildcards.scaf_type],
