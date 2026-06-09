@@ -360,9 +360,10 @@ if len(ilmn_samples) > 0:
         shadow:
             "minimal"
         params:
-            qoffset  = METASPADES_qoffset,
-            asm_mode = "--meta",
-            kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
+            qoffset        = METASPADES_qoffset,
+            asm_mode       = "--meta",
+            kmer_option    = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
+            nanopore_input = ""
         resources:
             mem = lambda wildcards, input, attempt: int(26 + 8.8*get_file_size_gb(input.fwd) + 20*(attempt-1))
         log:
@@ -376,7 +377,7 @@ if len(ilmn_samples) > 0:
             time (
                 rsync --copy-links {input.fwd} {wildcards.illumina}.1.fq.gz
                 rsync --copy-links {input.rev} {wildcards.illumina}.2.fq.gz
-                {spades_script} {params.asm_mode} --only-assembler -1 {wildcards.illumina}.1.fq.gz -2 {wildcards.illumina}.2.fq.gz -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
+                {spades_script} {params.asm_mode} --only-assembler -1 {wildcards.illumina}.1.fq.gz -2 {wildcards.illumina}.2.fq.gz {params.nanopore_input} -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
                 rsync -a outdir/contigs.fasta {output.cont_fa}
                 rsync -a outdir/contigs.paths {output.cont_pth}
                 rsync -a outdir/scaffolds.fasta {output.scaf_fa}
@@ -389,12 +390,9 @@ if len(ilmn_samples) > 0:
 
     ###############################################################################################
     # Hybrid assembly of illumina and nanopore samples
-    #
-    # This is almost a replica of the rule above except that nanopore is added and assembly name is different.
-    # When I learn how to handle that in single rule, perhaps I can unify it.
-    # Until then, changes have to be made in both!
+    #  - inherits the normal illumina assembly rule above with --nanopore argument
     ###############################################################################################
-    rule hybrid_assembly_metaspades:
+    use rule illumina_assembly_metaspades as hybrid_assembly_metaspades with:
         input:
             fwd="{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz",
             rev="{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz",
@@ -407,33 +405,13 @@ if len(ilmn_samples) > 0:
             scaf_gfa   = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/assembly_graph_with_scaffolds.gfa.gz",
             asm_log    = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/spades.log",
             asm_params = "{wd}/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/params.txt",
-        shadow:
-            "minimal"
         params:
-            qoffset  = METASPADES_qoffset,
-            asm_mode = "--meta",
-            kmer_option = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
-        resources:
-            mem = lambda wildcards, input, attempt: int(26 + 8.8*get_file_size_gb(input.fwd) + 20*(attempt-1))
+            qoffset        = METASPADES_qoffset,
+            asm_mode       = "--meta",
+            kmer_option    = lambda wildcards: get_metaspades_kmer_option(int(wildcards.maxk)),
+            nanopore_input = lambda wildcards, input: "--nanopore {}".format(input.ont)
         log:
             "{wd}/logs/{omics}/7-assembly/{nanopore}-{illumina}/k21-{maxk}/{nanopore}-{illumina}_metaspades.log"
-        threads:
-            METASPADES_threads
-        conda:
-            minto_dir + "/envs/MIntO_base.yml"
-        shell:
-            """
-            time (
-                {spades_script} {params.asm_mode} --only-assembler -1 {input.fwd} -2 {input.rev} --nanopore {input.ont} -t {threads} -m {resources.mem} -o outdir --tmp-dir tmp --phred-offset {params.qoffset} -k {params.kmer_option}
-                rsync -a outdir/contigs.fasta {output.cont_fa}
-                rsync -a outdir/contigs.paths {output.cont_pth}
-                rsync -a outdir/scaffolds.fasta {output.scaf_fa}
-                rsync -a outdir/scaffolds.paths {output.scaf_pth}
-                rsync -a outdir/spades.log {output.asm_log}
-                rsync -a outdir/params.txt {output.asm_params}
-                gzip -c outdir/assembly_graph_with_scaffolds.gfa > {output.scaf_gfa}
-            ) >& {log}
-            """
 
     ###############################################################################################
     # This checks whether the first and last k characters in the contig are the same.
