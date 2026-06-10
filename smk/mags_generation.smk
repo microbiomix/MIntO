@@ -125,6 +125,16 @@ if (x := validate_optional_key(config, 'METABULI_MEM_GB')):
 SCORE_METHOD         = validate_required_key(config, 'SCORE_METHOD')
 check_allowed_values('SCORE_METHOD', SCORE_METHOD, ['checkm'])
 
+###############################
+# Aligner type for co-abundance estimation
+###############################
+
+ILLUMINA_ALIGNER_type = None
+if (x := validate_optional_key(config, 'ILLUMINA_ALIGNER_type')):
+    valid_aligner_types = ['bwa', 'strobealign']
+    check_allowed_values('ILLUMINA_ALIGNER_type', x, valid_aligner_types)
+    ILLUMINA_ALIGNER_type = x
+
 # MAG-building directory
 MAG_BUILDING_SUBDIR = 'mags'
 if (x := validate_optional_key(config, 'MAG_BUILDING_SUBDIR')):
@@ -224,7 +234,7 @@ rule metabuli_taxonomy:
 rule run_taxvamb:
     input:
         contigs_file = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.fasta.gz",
-        rpkm_file    = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.npz",
+        rpkm_file    = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.{ILLUMINA_ALIGNER_type}.abundance.npz",
         tax_file     = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.taxonomy.GTDB.{TAXVAMB_ANNOTATOR}.tsv",
     output:
         tsv="{wd}/{omics}/8-1-binning/{mag_dir}/vaevae{vbinner}/vaevae_clusters_unsplit.tsv"
@@ -267,7 +277,7 @@ rule run_taxvamb:
 rule run_vamb_vae:
     input:
         contigs_file = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.fasta.gz",
-        rpkm_file    = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.npz",
+        rpkm_file    = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.{ILLUMINA_ALIGNER_type}.abundance.npz",
     output:
         tsv="{wd}/{omics}/8-1-binning/{mag_dir}/vae{vbinner}/vae_clusters_unsplit.tsv"
     shadow:
@@ -308,7 +318,7 @@ rule run_vamb_vae:
 rule run_vamb_aae:
     input:
         contigs_file = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.fasta.gz",
-        rpkm_file    = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.npz",
+        rpkm_file    = f"{{wd}}/{{omics}}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.{ILLUMINA_ALIGNER_type}.abundance.npz",
     output:
         tsv_y="{wd}/{omics}/8-1-binning/{mag_dir}/aae/aae_y_clusters_unsplit.tsv",
         tsv_z="{wd}/{omics}/8-1-binning/{mag_dir}/aae/aae_z_clusters_unsplit.tsv"
