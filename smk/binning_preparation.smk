@@ -213,7 +213,7 @@ def vamb_binning_preparation_output():
 
     # Well, better return vamb input
     return([
-        f"{working_dir}/{omics}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.abundance.tsv.gz"
+        f"{working_dir}/{omics}/8-1-binning/scaffolds.{MIN_FASTA_LENGTH}.{ILLUMINA_ALIGNER_type}.abundance.tsv.gz"
     ])
 
 def graphmb_binning_preparation_output():
@@ -295,9 +295,9 @@ if len(ilmn_samples) > 0:
         input:
             assemblies = get_assemblies_for_scaf_type
         output:
-            done = "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batches/.done"
+            done = "{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/scaffolds/batches/.done"
         log:
-            "{wd}/logs/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}.batching.log"
+            "{wd}/logs/{omics}/8-1-binning/{scaf_type}.{min_length}.scaffolds.batching.log"
         wildcard_constraints:
             min_length = r'\d+',
             scaf_type  = r'illumina_single|illumina_coas|illumina_single_nanopore|nanopore'
@@ -364,9 +364,9 @@ if len(ilmn_samples) > 0:
 
     rule write_assembly_batch_fasta:
         input:
-            list  = "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batches/batch{batch}.list"
+            list  = "{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/scaffolds/batches/batch{batch}.list"
         output:
-            fasta = temp("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batches/batch{batch}.fasta.gz")
+            fasta = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/scaffolds/batches/batch{batch}.fasta.gz")
         log:
             "{wd}/logs/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batch{batch}.writing.log"
         wildcard_constraints:
@@ -398,7 +398,7 @@ if len(ilmn_samples) > 0:
 
                     # write out batch
                     logme(f, "INFO: writing sequences to temporary file")
-                    filter_fasta_list_by_length(assemblies, tmp_file, params.min_length)
+                    filter_fasta_list_by_length(assemblies, tmp_file, min_length=params.min_length)
 
                 logme(f, "INFO: copying temporary file to final output")
                 shutil.copy2(tmp_file, output.fasta)
@@ -410,7 +410,7 @@ if len(ilmn_samples) > 0:
     ################################################################################################
 
     def get_assembly_batch_fasta(wildcards):
-        fasta = "{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batches/batch{batch}.fasta.gz".format(
+        fasta = "{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/scaffolds/batches/batch{batch}.fasta.gz".format(
                 wd         = wildcards.wd,
                 omics      = wildcards.omics,
                 scaf_type  = wildcards.scaf_type,
@@ -421,7 +421,7 @@ if len(ilmn_samples) > 0:
 
     def get_assembly_batch_index_files(wildcards):
         fasta = get_assembly_batch_fasta(wildcards)
-        return(get_fasta_index_path(fasta, wildcards.mapper))
+        return(get_fasta_index_path(fasta, wildcards.aligner))
 
     ###############################################################################################
     # Downsample large metagenomes to reduce heavy run time when mapping to ALL contigs
@@ -466,13 +466,13 @@ if len(ilmn_samples) > 0:
             rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
             maxfrag=rules.set_max_mapcount.output
         output:
-            depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batches/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
+            depth = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/batches/batch{batch}/{illumina}.depth.txt.gz")
         shadow:
             "minimal"
         log:
-            "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.{mapper}.log"
+            "{wd}/logs/{omics}/6-mapping/{illumina}/.{scaf_type}.{min_length}.depth.{aligner}.batch{batch}.log"
         wildcard_constraints:
-            mapper   = r'bwa',
+            aligner  = r'bwa',
             batch    = r'\d+',
             illumina = r'[^/]+'
         resources:
@@ -543,13 +543,13 @@ if len(ilmn_samples) > 0:
             rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
             maxfrag=rules.set_max_mapcount.output,
         output:
-            depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
+            depth = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/batches/batch{batch}/{illumina}.depth.txt.gz")
         shadow:
             "minimal"
         log:
-            "{wd}/logs/{omics}/6-mapping/{illumina}/{illumina}.scaffolds_{scaf_type}.{min_length}.batch{batch}.{mapper}.log"
+            "{wd}/logs/{omics}/6-mapping/{illumina}/{scaf_type}.{min_length}.depth.{aligner].batch{batch}.{aligner}.log"
         wildcard_constraints:
-            mapper   = r'strobealign',
+            aligner  = r'strobealign',
             batch    = r'\d+',
             illumina = r'[^/]+'
         resources:
@@ -608,19 +608,19 @@ if len(ilmn_samples) > 0:
     # Also ignore contigLen, totalAvgDepth
     rule colbind_sample_contig_depths_for_batch:
         input:
-            depths = lambda wildcards: expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batches/batch{batch}/{illumina}.{mapper}.depth.txt.gz",
+            depths = lambda wildcards: expand("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/batches/batch{batch}/{illumina}.depth.txt.gz",
                                                 wd = wildcards.wd,
                                                 omics = wildcards.omics,
                                                 scaf_type = wildcards.scaf_type,
                                                 min_length = wildcards.min_length,
                                                 batch = wildcards.batch,
-                                                illumina=ilmn_samples,
-                                                mapper = ILLUMINA_ALIGNER_type)
+                                                illumina = ilmn_samples,
+                                                aligner = wildcards.aligner)
         output:
-            depths = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batches/batch{batch}.depth.txt.gz"),
-            header = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batches/batch{batch}.header.txt.gz"),
+            depths = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/batches/batch{batch}.depth.txt.gz"),
+            header = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/batches/batch{batch}.header.txt.gz"),
         log:
-            "{wd}/logs/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}.depth.log"
+            "{wd}/logs/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/batch{batch}.depth.log"
         wildcard_constraints:
             batch = r'\d+',
         shadow:
@@ -723,13 +723,13 @@ if len(ilmn_samples) > 0:
         chkpnt_output = checkpoints.make_assembly_batches.get(**wildcards).output.done
         batch_dir     = os.path.dirname(chkpnt_output)
         batches       = glob_wildcards(os.path.join(batch_dir, "batch{batch,\d+}.list")).batch
-        prefix        = 'scaffolds' if (filetype == 'fasta') else 'depth'
-        result        = expand("{wd}/{omics}/8-1-binning/{prefix}_{scaf_type}.{min_length}/batches/batch{batch}.{extension}.gz",
+        location      = 'scaffolds' if (filetype == 'fasta') else "depth." + wildcards.aligner
+        result        = expand("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/{location}/batches/batch{batch}.{extension}.gz",
                                 wd = wildcards.wd,
                                 omics = wildcards.omics,
-                                prefix = prefix,
                                 scaf_type = wildcards.scaf_type,
                                 min_length = wildcards.min_length,
+                                location = location,
                                 extension = filetype,
                                 batch = batches)
         return(result)
@@ -750,9 +750,9 @@ if len(ilmn_samples) > 0:
         input:
             header = get_header_batches_for_scaf_type
         output:
-            header = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/combined.header.txt.gz")
+            header = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/combined.header.txt.gz")
         log:
-            "{wd}/logs/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batches.check_depth.log"
+            "{wd}/logs/{omics}/8-1-binning/{scaf_type}.{min_length}/batches.{aligner}.check_depth.log"
         shell:
             """
             rm --force {output}
@@ -774,7 +774,7 @@ if len(ilmn_samples) > 0:
             depths = get_depth_batches_for_scaf_type,
             header = rules.combine_contig_depth_header_batches.output.header
         output:
-            depths = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/combined.depth.txt.gz")
+            depths = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/depth.{aligner}/combined.depth.txt.gz")
         shadow:
             "minimal"
         params:
@@ -799,7 +799,7 @@ if len(ilmn_samples) > 0:
         input:
             fasta  = get_fasta_batches_for_scaf_type
         output:
-            fasta_combined = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/combined.fasta.gz")
+            fasta_combined = temp("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/scaffolds/combined.fasta.gz")
         wildcard_constraints:
             min_length = r'\d+',
             scaf_type  = r'illumina_single|illumina_coas|illumina_single_nanopore|nanopore'
@@ -826,12 +826,14 @@ if len(ilmn_samples) > 0:
     #####################################
 
     def get_files_across_scaffold_types_generic(wildcards, filetype):
-        files = expand("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/combined.{extension}.gz",
-                        wd = wildcards.wd,
-                        omics = wildcards.omics,
-                        min_length = wildcards.min_length,
-                        extension = filetype,
-                        scaf_type = SCAFFOLDS_type)
+        location = 'scaffolds' if (filetype == 'fasta') else "depth." + wildcards.aligner
+        files    = expand("{wd}/{omics}/8-1-binning/{scaf_type}.{min_length}/{location}/combined.{extension}.gz",
+                            wd         = wildcards.wd,
+                            omics      = wildcards.omics,
+                            min_length = wildcards.min_length,
+                            location   = location,
+                            extension  = filetype,
+                            scaf_type  = SCAFFOLDS_type)
         return(files)
 
     def get_fasta_files_across_scaffold_types(wildcards):
@@ -874,7 +876,7 @@ if len(ilmn_samples) > 0:
         input:
             header = get_header_files_across_scaffold_types
         output:
-            header = temp("{wd}/{omics}/8-1-binning/scaffolds.{min_length}.header.txt.gz")
+            header = temp("{wd}/{omics}/8-1-binning/scaffolds.{min_length}.{aligner}.header.txt.gz")
         shell:
             """
             rm --force {output}
@@ -903,10 +905,10 @@ if len(ilmn_samples) > 0:
             header  = rules.combine_contig_depth_header.output.header,
             depths  = get_depth_files_across_scaffold_types,
         output:
-            tsv = "{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.tsv.gz",
-            npz = "{wd}/{omics}/8-1-binning/scaffolds.{min_length}.abundance.npz"
+            tsv = "{wd}/{omics}/8-1-binning/scaffolds.{min_length}.{aligner}.abundance.tsv.gz",
+            npz = "{wd}/{omics}/8-1-binning/scaffolds.{min_length}.{aligner}.abundance.npz"
         log:
-            "{wd}/logs/{omics}/8-1-binning/scaffolds.{min_length}.abundance.log"
+            "{wd}/logs/{omics}/8-1-binning/scaffolds.{min_length}.{aligner}.abundance.log"
         shadow:
             "minimal"
         threads:
@@ -1031,6 +1033,7 @@ rule config_yml_binning:
     log:
         "{wd}/logs/{omics}/config_yml_mags_generation.log"
     params:
+        aligner               = ILLUMINA_ALIGNER_type,
         min_fasta_length      = MIN_FASTA_LENGTH,
         binners               = make_binners_yaml(ilmn_samples, nano_samples),
         nanopore_samples_yaml = '\n'.join(["- '{}'".format(i) for i in nano_samples]),
@@ -1050,6 +1053,7 @@ METADATA: {metadata}
 # COMMON PARAMETERS
 ######################
 
+ILLUMINA_ALIGNER_type: {params.aligner}
 MIN_FASTA_LENGTH: {params.min_fasta_length}
 MIN_MAG_LENGTH: 500000
 
