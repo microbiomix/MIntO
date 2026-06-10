@@ -57,7 +57,9 @@ mask    = bytearray()
 # Iterate through all the fasta files in input
 
 for header, seq in fiter:
-    contignames.append(header)
+    # depth file has fasta ID only (just the first word)
+    h = header.split()[0]
+    contignames.append(h)
     lengths.append(len(seq))
     mask.append(True)
 
