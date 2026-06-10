@@ -48,17 +48,27 @@ def get_sba_rparam():
     readlen_file = f"{working_dir}/{omics}/1-trimmed/samples_read_length.txt"
     cutoff_file  = f"{working_dir}/{omics}/1-trimmed/QC_1_min_len_read_cutoff.txt"
 
-    # read length cutoff from QC_1
-    cutoff = 50
-    with open(cutoff_file, "r") as f:
-        cutoff = int(f.readline().rstrip())
+    # default value for mean read lengths between 135 and 175,
+    # which is mostly the case for Illumina 2x150bp
+    sba_mean_len = 150
 
-    # after QC_2
-    if os.path.exists(meanlen_file):
-        sba_mean_len = open(meanlen_file, 'r').readline().strip()
-    # in QC_2
-    elif os.path.exists(readlen_file):
-        sba_mean_len = get_sba_mean_len(readlen_file, cutoff)
+    # if all the required files exist for estimating in this cohort, do that
+    if os.path.exists(meanlen_file) and \
+       os.path.exists(readlen_file) and \
+       os.path.exists(cutoff_file):
+
+        # read length cutoff from QC_1
+        cutoff = 50
+        with open(cutoff_file, "r") as f:
+            cutoff = int(f.readline().rstrip())
+
+        # after QC_2
+        if os.path.exists(meanlen_file):
+            sba_mean_len = open(meanlen_file, 'r').readline().strip()
+        # in QC_2
+        elif os.path.exists(readlen_file):
+            sba_mean_len = get_sba_mean_len(readlen_file, cutoff)
+
     return(sba_mean_len)
 
 def get_fasta_index_path(fasta, mapper):
@@ -139,7 +149,6 @@ rule BWA_index:
 rule STROBEALIGN_index:
     input:
         fasta="{somewhere}/{something}.{fasta}",
-        meanlen_txt=f"{working_dir}/output/2-qc/{omics}.mean_length.txt"
     output:
         sti="{somewhere}/STROBEALIGN_index/{something}.{fasta}.r{meanlen}.sti"
     log:
