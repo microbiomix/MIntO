@@ -797,7 +797,6 @@ if len(ilmn_samples) > 0:
     rule combine_fasta_batches:
         localrule: True
         input:
-            depths = get_depth_batches_for_scaf_type,
             fasta  = get_fasta_batches_for_scaf_type
         output:
             fasta_combined = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/combined.fasta.gz")
