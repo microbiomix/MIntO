@@ -1041,6 +1041,24 @@ rule clean_bwaindex_mirror_for_scaf_type:
 # Generate configuration yml file for recovery of MAGs and taxonomic annotation step - binning
 ###############################################################################################
 
+def make_binners_yaml(illumina_samples, nanopore_samples):
+    """Create YAML array entries for binners, depending on available data types."""
+
+    entries = []
+
+    # If Illumina samples are available, add the Illumina-supported binners.
+    if illumina_samples:
+        illumina_binners = ['aaey', 'aaez', 'vaevae512']
+        entries.extend(f"- {binner}" for binner in illumina_binners)
+
+    # If Nanopore samples are available, add the Nanopore-supported binner.
+    if nanopore_samples:
+        entries.append("- graphmb")
+
+    # Return a YAML-style array as a multiline string.
+    # If no entries were added, this returns an empty string.
+    return "\n".join(entries)
+
 rule config_yml_binning:
     localrule: True
     output:
@@ -1052,7 +1070,7 @@ rule config_yml_binning:
         "{wd}/logs/{omics}/config_yml_mags_generation.log"
     params:
         min_fasta_length      = MIN_FASTA_LENGTH,
-        binners               = '\n'.join(["- {}".format(i) for i in ['aaey', 'aaez', 'vaevae512']]) if ilmn_samples else '- graphmb',
+        binners               = make_binners_yaml(ilmn_samples, nano_samples),
         nanopore_samples_yaml = '\n'.join(["- '{}'".format(i) for i in nano_samples]),
         metaflye_presets_yaml = '\n'.join(['  {}: "{}"'.format(k, METAFLYE_presets[k]) for k in METAFLYE_presets.keys()])
     shell:
