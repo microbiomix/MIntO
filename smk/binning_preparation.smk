@@ -1000,43 +1000,6 @@ if len(nano_samples) > 0:
             ) >& {log}
             """
 
-##################################################
-# Clean up BWA index files in the mirror locations
-##################################################
-
-# Get list of clean flags for cleaning up all batches for this scaf_type
-def get_flags_to_clean_bwaindex_mirror_for_scaf_type(wildcards):
-    chkpnt_output = checkpoints.make_assembly_batches.get(**wildcards).output.done
-    batch_dir     = os.path.dirname(chkpnt_output)
-    batches       = glob_wildcards(os.path.join(batch_dir, "batch{batch,\d+}.list")).batch
-    result        = expand("{wd}/{omics}/8-1-binning/scaffolds_{scaf_type}.{min_length}/batches/{aligner}_index/batch{batch}.fasta.gz.clustersync/cleaning.done",
-                            wd = wildcards.wd,
-                            omics = wildcards.omics,
-                            scaf_type = wildcards.scaf_type,
-                            min_length = wildcards.min_length,
-                            aligner = "BWA" if ILLUMINA_ALIGNER_type == "bwa" else "sba",
-                            batch = batches)
-    return(result)
-
-# Clean BWA index for all batches for a given scaf_type
-rule clean_bwaindex_mirror_for_scaf_type:
-    localrule: True
-    input:
-        fasta = get_flags_to_clean_bwaindex_mirror_for_scaf_type
-    output:
-        temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/{aligner}_index.batches.cleaning.done")
-    wildcard_constraints:
-        min_length = r'\d+',
-        scaf_type  = r'illumina_single|illumina_coas|illumina_single_nanopore|nanopore'
-    shadow:
-        "minimal"
-    threads:
-        1
-    shell:
-        """
-        touch {output}
-        """
-
 ###############################################################################################
 # Generate configuration yml file for recovery of MAGs and taxonomic annotation step - binning
 ###############################################################################################
