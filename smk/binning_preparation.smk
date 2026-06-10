@@ -542,7 +542,6 @@ if len(ilmn_samples) > 0:
             fwd='{wd}/{omics}/6-corrected/{illumina}/{illumina}.1.fq.gz',
             rev='{wd}/{omics}/6-corrected/{illumina}/{illumina}.2.fq.gz',
             maxfrag=rules.set_max_mapcount.output,
-            meanlen_txt = "{wd}/output/2-qc/{omics}.mean_length.txt"
         output:
             depth = temp("{wd}/{omics}/8-1-binning/depth_{scaf_type}.{min_length}/batch{batch}/{illumina}.{mapper}.depth.txt.gz")
         shadow:
@@ -558,6 +557,7 @@ if len(ilmn_samples) > 0:
         threads:
             ILLUMINA_ALIGNER_threads
         params:
+            r_arg             = get_sba_rparam(),
             staging           = lambda wildcards: "no" if local_cache_dir is None else "yes",
             final_destination = lambda wildcards, input: "{}/{}".format(local_cache_dir, os.path.dirname(input.sbaindex[0])),
         conda:
@@ -581,9 +581,6 @@ if len(ilmn_samples) > 0:
                 input_files="{input.fwd} {input.rev}"
             fi
 
-            # Get mean length parameter for sba
-            r_arg="$(cat {input.meanlen_txt})"
-
             time (
                 # Stage index files locally if needed
                 if [ "{params.staging}" == "yes" ]; then
@@ -595,8 +592,8 @@ if len(ilmn_samples) > 0:
                 fi
 
                 # Remove the index file extension to get db_name argument for fasta
-                db_name=$(echo $db_name | sed -e "s|.r${{r_arg}}.sti||")
-                strobealign -t {threads} -r $r_arg --use-index --aemb $db_name $input_files > abundances.tsv
+                db_name=$(echo $db_name | sed -e "s|.r{params.r_arg}.sti||")
+                strobealign -t {threads} -r {params.r_arg} --use-index --aemb $db_name $input_files > abundances.tsv
                 gzip -2 abundances.tsv
                 rsync -a abundances.tsv.gz {output.depth:q}
             ) >& {log}
