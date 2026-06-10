@@ -219,7 +219,7 @@ def vamb_binning_preparation_output():
 def graphmb_binning_preparation_output():
     if "nanopore" not in SCAFFOLDS_type:
         return([])
-    return(expand("{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_depth.txt",
+    return(expand("{wd}/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_depth.txt",
                   wd = working_dir,
                   omics = omics,
                   min_length = MIN_FASTA_LENGTH,
@@ -943,14 +943,14 @@ if len(nano_samples) > 0:
             mapping = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/{nanopore}.assembly.edges.renaming.tsv",
             gfa     = "{wd}/{omics}/7-assembly/{nanopore}/{assembly_preset}/assembly_graph.dnaapler.gfa"
         output:
-            fasta   = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.fasta",
-            renamed = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.renamed.fasta",
-            mapping = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.edges.renaming.tsv",
-            gfa     = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_graph.gfa"
+            fasta   = "{wd}/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.fasta",
+            renamed = "{wd}/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.renamed.fasta",
+            mapping = "{wd}/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly.edges.renaming.tsv",
+            gfa     = "{wd}/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_graph.gfa"
         wildcard_constraints:
             min_length = r'\d+'
         log:
-            "{wd}/logs/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/prepare_graphmb_edge_files.log"
+            "{wd}/logs/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/prepare_graphmb_edge_files.log"
         resources:
             mem = 5
         conda:
@@ -971,7 +971,7 @@ if len(nano_samples) > 0:
             fasta = rules.prepare_graphmb_edge_files.output.fasta,
             ont   = "{wd}/{omics}/6-corrected/{nanopore}/{nanopore}.nanopore.fq.gz"
         output:
-            depth = "{wd}/{omics}/8-1-binning/scaffolds_nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_depth.txt"
+            depth = "{wd}/{omics}/8-1-binning/nanopore.{min_length}/graphmb/{nanopore}/{assembly_preset}/assembly_depth.txt"
         wildcard_constraints:
             min_length = r'\d+'
         shadow:
