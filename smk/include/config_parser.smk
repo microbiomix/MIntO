@@ -159,7 +159,6 @@ ALIASES = {
     'ILLUMINA_SAMPLES'       : ['ILLUMINA'],
     'METASPADES_CONTIGS_OR_SCAFFOLDS' : ['SPADES_CONTIGS_OR_SCAFFOLDS'],
     'NANOPORE_ALIGNER_threads'        : ['ALIGNER_threads', 'BWA_threads', 'BWA_host_threads'],
-    'NANOPORE_ALIGNER_type'  : ['ALIGNER_type'],
     'NANOPORE_SAMPLES'       : ['NANOPORE'],
     'TRIMMOMATIC_adaptors'   : ['TRIMMOMATIC_adapters']
 }
