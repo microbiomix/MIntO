@@ -116,8 +116,8 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
 
   # Catch the edge-case in motus_raw where sample has 0 readcount for all taxa including unknown
   # By updating its 'Unknown' to 1, we set Unknown=100% in relative abundance world
-  to_update = colSums(otu_table) == 0
-  otu_table[c("Unknown"), to_update] = 1
+  empty_sample = colSums(otu_table) == 0
+  otu_table[c("Unknown"), empty_sample] = 1
 
 # **********************************                                             ********************************
 # **********************************          Generate phyloseq object           ********************************
