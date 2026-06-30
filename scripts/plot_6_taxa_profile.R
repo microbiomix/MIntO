@@ -25,9 +25,26 @@ option_list = list(
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
 
-if (any(is.null(c(opt$table, opt$profiler, opt$metadata, opt$factor, opt$outdir)))) {
+# Catch missing required args
+
+required_args <- list(
+  table = opt$table,
+  profiler = opt$profiler,
+  metadata = opt$metadata,
+  factor = opt$factor,
+  outdir = opt$outdir
+)
+
+missing_args <- names(required_args)[vapply(required_args, is.null, logical(1))]
+
+if (length(missing_args) > 0) {
   print_help(opt_parser)
-  stop("Missing required arguments\n", call.=FALSE)
+  stop(
+    "Missing required arguments: ",
+    paste(missing_args, collapse = ", "),
+    "\n",
+    call. = FALSE
+  )
 }
 
 profile_file = opt$table
@@ -75,10 +92,12 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
   point_aes <- ggplot2::aes()
   
   if (!is.null(color)) {
+    p$data$.plot_colour <- p$data[[color]]
     point_aes$colour <- rlang::sym(color)
   }
   
   if (!is.null(shape)) {
+    p$data$.plot_shape <- as.factor(p$data[[shape]])
     point_aes$shape <- rlang::sym(shape)
   }
   
@@ -93,7 +112,6 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
       size = 3.0,
       segment.alpha = 0.5
     ) +
-    ggplot2::ggtitle(title_name, distance_lab) +
     ggplot2::theme_bw() +
     ggplot2::theme(legend.position = "top")
   
@@ -147,8 +165,14 @@ otu_table = otu_table[rowSums(otu_table)>0 | rownames(otu_table) == 'Unknown',]
 
 # Catch the edge-case in motus_raw where sample has 0 readcount for all taxa including unknown
 # By updating its 'Unknown' to 1, we set Unknown=100% in relative abundance world
-empty_sample = colSums(otu_table) == 0
-otu_table[c("Unknown"), empty_sample] = 1
+empty_sample <- colSums(otu_table) == 0
+if (any(empty_sample)) {
+  if (!"Unknown" %in% rownames(otu_table)) {
+    otu_table["Unknown", ] <- 0
+    taxa_df["Unknown", ] <- "Unknown"
+  }
+  otu_table["Unknown", empty_sample] <- 1
+}
 
 # **********************************                                             ********************************
 # **********************************          Generate phyloseq object           ********************************
@@ -156,13 +180,6 @@ otu_table[c("Unknown"), empty_sample] = 1
 
 # # Metadata
 metadata_df <- as.data.frame(fread(metadata_file,  header = T), stringsAsFactors = F)
-abund_samples <- colnames(otu_table)
-missing_meta <- setdiff(abund_samples, metadata_df$sample)
-if (length(missing_meta) > 0) {
-  stop("Samples missing from metadata: ", paste(missing_meta, collapse = ", "))
-}
-metadata_df <- metadata_df[match(abund_samples, metadata_df$sample), , drop = FALSE]
-rownames(metadata_df) <- metadata_df$sample
 
 # Validate metadata
 if (!"sample" %in% names(metadata_df)) {
@@ -181,6 +198,14 @@ if (!is.null(factor2) && !factor2 %in% names(metadata_df)) {
 if (!is.null(opt$time) && !opt$time %in% names(metadata_df)) {
   stop("--time column not found in metadata: ", opt$time)
 }
+
+abund_samples <- colnames(otu_table)
+missing_meta <- setdiff(abund_samples, metadata_df$sample)
+if (length(missing_meta) > 0) {
+  stop("Samples missing from metadata: ", paste(missing_meta, collapse = ", "))
+}
+metadata_df <- metadata_df[match(abund_samples, metadata_df$sample), , drop = FALSE]
+rownames(metadata_df) <- metadata_df$sample
 
 # estimating number of facets/grids for pdf sizing
 n_factor <- length(unique(metadata_df[[factor]]))
