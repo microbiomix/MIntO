@@ -218,10 +218,10 @@ otu_table_df <- as.data.frame(unclass(otu_table(profile_phyloseq)), stringsAsFac
 ##########################################
 
 distance_lab = 'bray'
-title_name <- c(paste0("PCoA - Taxonomic profile - ", profile_param), "Bray-Curtis")
+title_name <- paste0("PCoA - Taxonomic profile - ", profile_param)
 out_name <- paste0(out_dir, '/', profile_param, ".PCoA.Bray_Curtis.pdf")
 title_name_pval <- paste0("Metric: Bray-Curtis")
-if(length(unique(metadata_df[[factor]]))>1){
+if (length(unique(metadata_df[[factor]]))>1) {
   #**adonis/adonis2, Permutational Multivariate Analysis of Variance Using Distance Matrix**: ####
   library(vegan)
   #adonis_list$bray
@@ -237,9 +237,13 @@ if(length(unique(metadata_df[[factor]]))>1){
   title_name_pval <- paste0("Metric: Bray-Curtis; PERMANOVA on ", factor, ": R2=", r2_value, ", pval=", p_value)
 }
 
-#plot_PCoA_out <- plot_PCoA(distance_lab, profile_phyloseq , title_name, out_name)
-
-plot_PCoA_out <- plot_PCoA(distance_lab, profile_phyloseq , color=factor2, label = if (!is.null(opt$time)) opt$time else "sample", shape=factor)
+plot_PCoA_out <- plot_PCoA(
+  distance_lab,
+  profile_phyloseq,
+  color = if (!is.null(factor2)) factor2 else factor,
+  label = if (!is.null(opt$time)) opt$time else "sample",
+  shape = if (!is.null(factor2)) factor else NULL
+)
 
 manual_plot_colors =c('#9D0208', '#264653','#e9c46a','#D8DCDE','#B6D0E0',
                       '#FFC87E','#F4A261','#E34F33','#E9C46A',
@@ -272,6 +276,7 @@ group_by_vars <- c(factor, sample_var)
 if (!is.null(factor2)) {
   group_by_vars <- c(factor, factor2, sample_var) 
 }
+group_by_vars <- unique(group_by_vars)
 
 # # Prevalence 10% 
 # otu_taxa_filt_df = otu_taxa_merge[rowSums(otu_taxa_merge[, 2:ncol(otu_table_df)])>0.01,]
@@ -285,7 +290,7 @@ if (!is.null(factor2)) {
 
 otu_taxa_melt <- reshape2::melt(otu_table_df, id.vars=c("taxa_ID"))
 taxa_table_df <- taxa_table_df %>%
-  dplyr::select(taxa_ID, any_of(req_rank))
+  dplyr::select(taxa_ID, dplyr::all_of(req_rank))
 otu_taxa_melt <- merge(taxa_table_df, otu_taxa_melt, by="taxa_ID")
 
 otu_taxa_metadata <-  merge(sample_data_df, otu_taxa_melt, by.x = 'sample', by.y = 'variable') %>%
@@ -301,7 +306,7 @@ top_taxa_list <- otu_taxa_metadata %>%
   dplyr::filter(taxon != "Unknown") %>% 
   dplyr::group_by(taxon) %>% 
   dplyr::summarise(RA_count = sum(value)) %>% 
-  dplyr::slice_min(order_by = tibble(-RA_count), n = num_taxa, with_ties = FALSE) %>%
+  dplyr::slice_max(order_by = RA_count, n = num_taxa, with_ties = FALSE) %>%
   dplyr::select(taxon) %>%
   pull()
 
@@ -313,11 +318,6 @@ top_taxa_df_grouped_summed <- data.frame(top_taxa_df %>%
                                             dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>% 
                                             dplyr::summarise(RA_count = sum(value), .groups="drop_last") %>%
                                             ungroup())
-if (!is.null(opt$time)){
-  top_taxa_df_grouped_summed <- top_taxa_df_grouped_summed %>% 
-    dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>%
-    dplyr::summarise(RA_count = mean(RA_count), .groups="drop_last")
-}
 
 top_taxa_df_grouped_summed$taxon<- factor(top_taxa_df_grouped_summed$taxon, levels = rev(c(top_taxa_list, 'Other', 'Unknown')))
 #variables = unique(otu_taxa_metadata$species[order(-otu_taxa_metadata$value)])
@@ -370,7 +370,7 @@ dev.off()
 ##########################################
 
 # Remove Unknown/Unassigned
-# Count taxa with abundance > 0
+# Count the number of distinct non-Unknown taxa at the requested rank
 # Merge with metadata
 richness_df <- otu_taxa_metadata %>%
   dplyr::filter(taxon != "Unknown", value > 0) %>%
