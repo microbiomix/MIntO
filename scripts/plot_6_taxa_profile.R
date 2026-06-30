@@ -3,10 +3,9 @@
 # ---
 # title: "Taxonomic profile"
 # author: "Carmen Saenz, Mani Arumugam"
-# date: "09/10/2021"
 # Generate Visualization plots from assembly-free taxonomy profile (from MetaPhlan or mOTUs3):
 #   - PCoA
-#   - Relative abundances of 15 most abundant genera across the samples
+#   - Stacked barplot of relative abundances of N most abundant taxa (at requested rank) across the samples
 #   - Alpha diversity plot
 # ---
 
