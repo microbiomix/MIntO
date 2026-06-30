@@ -28,6 +28,8 @@ profile_file = opt$table
 profile_param = opt$profiler
 out_dir = opt$outdir
 metadata_file = opt$metadata
+factor = opt$factor
+factor2 = opt$factor2
 out_phyloseq = paste0(out_dir, '/', profile_param,'.phyloseq.rds')
 
 if (any(is.null(c(opt$table, opt$profiler, opt$metadata, opt$factor, opt$outdir)))) {
@@ -126,7 +128,7 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
 # # Metadata
 if (is.null(metadata_file)) {
   metadata_df <- data.frame(sample=names(otu_table), factor='default', sample_alias=names(otu_table))
-  names(metadata_df)[2] <- opt$factor
+  names(metadata_df)[2] <- factor
 } else{
   metadata_df <- as.data.frame(fread(metadata_file,  header = T), stringsAsFactors = F)
 }
@@ -135,9 +137,9 @@ rownames(samp) <- samp$sample
 
 
 # estimating number of facets/grids for pdf sizing
-n_factor <- length(unique(metadata_df[[opt$factor]]))
-if (!is.null(opt$factor2)) {
-  n_factor <- length(unique(metadata_df[[opt$factor2]]))
+n_factor <- length(unique(metadata_df[[factor]]))
+if (!is.null(factor2)) {
+  n_factor <- length(unique(metadata_df[[factor2]]))
 }
 n_facet_row <- ceiling(n_factor / 10)
 
@@ -204,7 +206,7 @@ distance_lab = 'bray'
 title_name <- c(paste0("PCoA - Taxonomic profile - ", profile_param), "Bray-Curtis")
 out_name <- paste0(out_dir, '/', profile_param, ".PCoA.Bray_Curtis.pdf")
 title_name_pval <- paste0("Metric: Bray-Curtis")
-if(length(unique(metadata_df[[opt$factor]]))>1){
+if(length(unique(metadata_df[[factor]]))>1){
   #**adonis/adonis2, Permutational Multivariate Analysis of Variance Using Distance Matrix**: ####
   library(vegan)
   #adonis_list$bray
@@ -213,16 +215,16 @@ if(length(unique(metadata_df[[opt$factor]]))>1){
   rownames(metadata_df) <- metadata_df$sample
   metadata <-metadata_df[match(names(otu_table), rownames(metadata_df)),]
   dist <- as.dist(vegdist(t(otu_table), method="bray", na.rm = T))
-  adonis_bray_Status<-adonis2(as.formula(paste("dist", "~", opt$factor)), data = metadata)
+  adonis_bray_Status<-adonis2(as.formula(paste("dist", "~", factor)), data = metadata)
   r2_value <- format(round(adonis_bray_Status$R2[1],3), nsmall = 3)
   p_value <- adonis_bray_Status$`Pr(>F)`[1]
   
-  title_name_pval <- paste0("Metric: Bray-Curtis; PERMANOVA on ", opt$factor, ": R2=", r2_value, ", pval=", p_value)
+  title_name_pval <- paste0("Metric: Bray-Curtis; PERMANOVA on ", factor, ": R2=", r2_value, ", pval=", p_value)
 }
 
 #plot_PCoA_out <- plot_PCoA(distance_lab, profile_phyloseq , title_name, out_name)
 
-plot_PCoA_out <- plot_PCoA(distance_lab, profile_phyloseq , color=opt$factor2, label = if (!is.null(opt$time)) opt$time else "sample", shape=opt$factor)
+plot_PCoA_out <- plot_PCoA(distance_lab, profile_phyloseq , color=factor2, label = if (!is.null(opt$time)) opt$time else "sample", shape=factor)
 
 manual_plot_colors =c('#9D0208', '#264653','#e9c46a','#D8DCDE','#B6D0E0',
                       '#FFC87E','#F4A261','#E34F33','#E9C46A',
@@ -238,7 +240,7 @@ print(plot_PCoA_out  +
         theme(legend.position="bottom")+
         ggtitle(title_name, title_name_pval))
 print(plot_PCoA_out  + 
-        facet_wrap(as.formula(paste(".", "~", opt$factor)))+
+        facet_wrap(as.formula(paste(".", "~", factor)))+
         #scale_color_manual(values=manual_plot_colors, name='Condition') +
         coord_fixed() +
         theme(legend.position="bottom")+
@@ -325,10 +327,10 @@ plot_genera_out <- ggplot(data=otu_taxa_metadata_top15_sum, aes(x = as.factor(.d
 #        theme(panel.margin.y = unit(0, "lines")) +
         scale_fill_manual(values = colors_kit, name="Top 15 genera")
 
-if (!is.null(opt$factor2)) {
-    plot_genera_out <- plot_genera_out + facet_grid(as.formula(paste(opt$factor, "~", opt$factor2)), scales = "free")
+if (!is.null(factor2)) {
+    plot_genera_out <- plot_genera_out + facet_grid(as.formula(paste(factor, "~", factor2)), scales = "free")
 } else {
-    plot_genera_out <- plot_genera_out + facet_wrap(as.formula(paste( opt$factor, "~", ".")), ncol = 5, scales = "free")
+    plot_genera_out <- plot_genera_out + facet_wrap(as.formula(paste(factor, "~", ".")), ncol = 5, scales = "free")
 }
 print(plot_genera_out)
 dev.off()
@@ -353,7 +355,7 @@ pdf_size <- max(round(n_facet_row * 1.8, 0), 10)
 pdf(out_name, width=pdf_size, height=pdf_size, paper="special" )
 
 if (!is.null(opt$time)) {
-    group_var = if (!is.null(opt$factor2)) opt$factor2 else opt$factor
+    group_var = if (!is.null(factor2)) factor2 else factor
     richness_plot <-ggplot(data=richness_df, aes(x=.data[[opt$time]], y=richness, group=.data[[group_var]])) +
                         geom_line(aes(color=.data[[group_var]])) +
                         geom_point() +
@@ -364,10 +366,10 @@ if (!is.null(opt$time)) {
                         theme(title = element_text(size = 10),
                               panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
                             ) +
-                        facet_wrap(as.formula(paste(".", "~", opt$factor)), scales = "free_x")
-} else if (!is.null(opt$factor2)) {
-    richness_plot <-ggplot(data=richness_df, aes(x=.data[[opt$factor]], y=richness, group=.data[[opt$factor2]])) +
-                        geom_line(aes(color=.data[[opt$factor2]])) +
+                        facet_wrap(as.formula(paste(".", "~", factor)), scales = "free_x")
+} else if (!is.null(factor2)) {
+    richness_plot <-ggplot(data=richness_df, aes(x=.data[[factor]], y=richness, group=.data[[factor2]])) +
+                        geom_line(aes(color=.data[[factor2]])) +
                         geom_point() +
                         ylim(0, NA) +
                         theme(legend.position = "top") +
@@ -377,7 +379,7 @@ if (!is.null(opt$time)) {
                               panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
                             )
 } else {
-    richness_plot <-ggplot(data=richness_df, aes(x=.data[[opt$factor]], y=richness)) +
+    richness_plot <-ggplot(data=richness_df, aes(x=.data[[factor]], y=richness)) +
                         geom_boxplot() +
                         geom_point() +
                         ylim(0, NA) +
