@@ -372,30 +372,37 @@ top_taxa_df_grouped_summed <- top_taxa_df %>%
                                            dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>% 
                                            dplyr::summarise(RA_count = sum(value), .groups="drop")
 
+# Stack order: most abundant taxa at bottom, then less abundant, then Other/Unknown on top
 top_taxa_df_grouped_summed$taxon<- factor(top_taxa_df_grouped_summed$taxon, levels = rev(c(top_taxa_list, 'Other', 'Unknown')))
-#variables = unique(otu_taxa_metadata$species[order(-otu_taxa_metadata$value)])
-#otu_taxa_metadata$species<- factor(otu_taxa_metadata$species, levels = variables)
 
-colors_kit <- c('#D8DCDE', '#B6D0E0')
-if (num_taxa <= 15) {
-  colors_kit <- c(colors_kit,
-                  '#9D0208','#FFC87E','#F4A261','#E34F33','#E9C46A',
-                  '#A786C9','#D4C0E2','#975773','#6699FF','#000066',
-                  '#7AAFCA','#006699','#A9D181','#2F8475','#264445')
-} else {
-  colors_kit <- c(colors_kit,
-                  rep(c('#9D0208','#FFC87E','#F4A261','#E34F33','#E9C46A',
-                        '#A786C9','#D4C0E2','#975773','#6699FF','#000066',
-                        '#7AAFCA','#006699','#A9D181','#2F8475','#264445'),
-                      length.out = num_taxa))
+colors_kit <- rev(c('#9D0208','#FFC87E','#F4A261','#E34F33','#264445',
+                    '#E9C46A','#A786C9','#D4C0E2','#975773','#6699FF',
+                    '#000066','#7AAFCA','#006699','#A9D181','#2F8475'))
+if (num_taxa > 15) {
+  colors_kit <- rep(colors_kit,
+                    length.out = num_taxa)
 }
+
+# Colour order: rank 1 gets colour 1, rank 2 gets colour 2, etc.
+taxon_colours <- stats::setNames(
+  colors_kit[seq_along(top_taxa_list)],
+  top_taxa_list
+)
+reserved_colours <- c(
+  Other = "#BDBDBD",
+  Unknown = "#FFFFFF"
+)
+fill_colours <- c(taxon_colours, reserved_colours)
 
 out_name <- paste0(out_dir, '/', profile_param, '.', req_rank, '.', 'top', num_taxa, '.pdf')
 pdf_size <- max(round(n_factor * 0.55, 0), 15)
 print(paste(pdf_size, "15top"))
 pdf(out_name,width=pdf_size * 0.80,height=pdf_size,paper="special" )
-plot_genera_out <- ggplot(data=top_taxa_df_grouped_summed, aes(x = as.factor(.data[[sample_var]]), group = taxon)) +
-  geom_bar(aes(y=RA_count, fill = taxon), stat="identity", alpha=.7) +
+plot_genera_out <- ggplot(
+  data=top_taxa_df_grouped_summed,
+  aes(x = .data[[sample_var]], y=RA_count, fill = taxon)) +
+  geom_bar(stat="identity", alpha=.7) +
+  ylim(0, 1) +
   theme_minimal() + 
   theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) + 
   labs(x = "Samples", y = "Relative abundance") +
@@ -407,8 +414,11 @@ plot_genera_out <- ggplot(data=top_taxa_df_grouped_summed, aes(x = as.factor(.da
         panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
   ) +
   guides(fill=guide_legend(ncol= 1)) +
-  #        theme(panel.margin.y = unit(0, "lines")) +
-  scale_fill_manual(values = colors_kit, name=paste0("Top ", num_taxa, " taxa (", req_rank, ")"))
+  scale_fill_manual(values = fill_colours,
+                    breaks = rev(c(top_taxa_list, "Other")), # Add "Unknown" in the end if you want it to be explicit
+                    name=paste0("Top ", num_taxa, " taxa (", req_rank, ")"),
+                    drop = FALSE
+                    )
 
 if (!is.null(factor2)) {
   plot_genera_out <- plot_genera_out + facet_grid(as.formula(paste(factor, "~", factor2)), scales = "free")
