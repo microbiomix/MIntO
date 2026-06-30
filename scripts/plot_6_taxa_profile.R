@@ -368,10 +368,9 @@ top_taxa_list <- otu_taxa_metadata %>%
 top_taxa_df <- otu_taxa_metadata %>%
   dplyr::mutate(taxon = if_else(taxon %in% c(top_taxa_list, "Unknown"), taxon, "Other"))
 
-top_taxa_df_grouped_summed <- data.frame(top_taxa_df %>% 
+top_taxa_df_grouped_summed <- top_taxa_df %>% 
                                            dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>% 
-                                           dplyr::summarise(RA_count = sum(value), .groups="drop_last") %>%
-                                           ungroup())
+                                           dplyr::summarise(RA_count = sum(value), .groups="drop")
 
 top_taxa_df_grouped_summed$taxon<- factor(top_taxa_df_grouped_summed$taxon, levels = rev(c(top_taxa_list, 'Other', 'Unknown')))
 #variables = unique(otu_taxa_metadata$species[order(-otu_taxa_metadata$value)])
