@@ -91,6 +91,7 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
   species_table <- as.data.frame(fread(profile_file, header = T), stringsAsFactors = F) %>%
     filter(grepl('s__|^Unknown', clade_name)) %>%
     filter(!grepl('t__', clade_name)) %>%
+    mutate(across('clade_name', \(x) str_replace(x, 'Unknown', paste(rep('Unknown', 7), collapse='|')))) %>%
     mutate(across('clade_name', \(x) str_replace_all(x, '[kpcofgs]__', ''))) %>%
     tidyr::separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species"), "[\\|]") %>%
     mutate_all(~replace_na(., "Unknown"))
