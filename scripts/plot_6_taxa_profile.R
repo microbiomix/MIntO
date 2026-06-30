@@ -13,16 +13,16 @@
 # Parse command line arguments
 library(optparse)
 option_list = list(
-                make_option(c("--table"),    type="character", default=NULL, help="taxonomic profile table", metavar="character"),
-                make_option(c("--profiler"), type="character", default=NULL, help="name of the taxonomic profiler", metavar="character"),
-                make_option(c("--metadata"), type="character", default=NULL, help="metadata file", metavar="character"),
-                make_option(c("--factor"),   type="character", default=NULL, help="name of key factor from metadata file", metavar="character"),
-                make_option(c("--factor2"),  type="character", default=NULL, help="name of 2nd factor from metadata file", metavar="character"),
-                make_option(c("--time"),     type="character", default=NULL, help="name of time variable from metadata file", metavar="character"),
-                make_option(c("--taxrank"),  type="character", default="genus", help="taxonomic rank for plotting top taxa", metavar="character"),
-                make_option(c("--toptaxcount"), type="integer", default=15, help="number of top taxa at this rank to plot", metavar="character"),
-                make_option(c("--outdir"),   type="character", default=NULL, help="output directory", metavar="character")
-                )
+  make_option(c("--table"),    type="character", default=NULL, help="taxonomic profile table", metavar="character"),
+  make_option(c("--profiler"), type="character", default=NULL, help="name of the taxonomic profiler", metavar="character"),
+  make_option(c("--metadata"), type="character", default=NULL, help="metadata file", metavar="character"),
+  make_option(c("--factor"),   type="character", default=NULL, help="name of key factor from metadata file", metavar="character"),
+  make_option(c("--factor2"),  type="character", default=NULL, help="name of 2nd factor from metadata file", metavar="character"),
+  make_option(c("--time"),     type="character", default=NULL, help="name of time variable from metadata file", metavar="character"),
+  make_option(c("--taxrank"),  type="character", default="genus", help="taxonomic rank for plotting top taxa", metavar="character"),
+  make_option(c("--toptaxcount"), type="integer", default=15, help="number of top taxa at this rank to plot", metavar="character"),
+  make_option(c("--outdir"),   type="character", default=NULL, help="output directory", metavar="character")
+)
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
 
@@ -63,12 +63,12 @@ set.seed(1234)
 
 ##########################  ** Function - PCoA **  ########################## 
 plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #out_name,title_name,
-
+  
   # Create the ordination object
   my_physeq = subset_taxa(data_phyloseq, kingdom != 'Unknown')
   ord <- ordinate(my_physeq, method = "PCoA", distance = distance_lab)
   p <- plot_ordination(my_physeq, ord, color = color, shape = shape, label = label)
-
+  
   # Keep the ordination object/axis labels, but remove phyloseq's default layers
   p$layers <- list()
   
@@ -108,48 +108,48 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
 
 # Generate phyloseq object - metaphlan/mOTUs3 output ####
 # Common workflow, since we reformat mOTUs3 output like MetaPhlAn output
-  
-  species_table <- as.data.frame(fread(profile_file, header = T), stringsAsFactors = F) %>%
-    filter(grepl('s__|^Unknown', clade_name)) %>%
-    filter(!grepl('t__', clade_name)) %>%
-    mutate(across('clade_name', \(x) str_replace(x, 'Unknown', paste(rep('Unknown', 7), collapse='|')))) %>%
-    mutate(across('clade_name', \(x) str_replace_all(x, '[kpcofgs]__', ''))) %>%
-    tidyr::separate(clade_name,
-                    into = valid_ranks,
-                    sep = "[\\|]",
-                    fill = "right",
-                    extra = "drop") %>%
-    mutate_all(~replace_na(., "Unknown"))
 
-  if (profile_param %like% 'motus') {
-    rnames <- str_extract(species_table$species, "\\[(\\S+)\\]$", group=1)
-    rnames[is.na(rnames)] <- 'Unknown'
-    rownames(species_table) <- rnames
-  } else {
-    rownames(species_table) <- paste0(species_table$species)
-  }
+species_table <- as.data.frame(fread(profile_file, header = T), stringsAsFactors = F) %>%
+  filter(grepl('s__|^Unknown', clade_name)) %>%
+  filter(!grepl('t__', clade_name)) %>%
+  mutate(across('clade_name', \(x) str_replace(x, 'Unknown', paste(rep('Unknown', 7), collapse='|')))) %>%
+  mutate(across('clade_name', \(x) str_replace_all(x, '[kpcofgs]__', ''))) %>%
+  tidyr::separate(clade_name,
+                  into = valid_ranks,
+                  sep = "[\\|]",
+                  fill = "right",
+                  extra = "drop") %>%
+  mutate_all(~replace_na(., "Unknown"))
 
-  #### OTU table
-  otu_table <- species_table %>%
-    select(-any_of(valid_ranks))
-  if (profile_param %like% 'metaphlan') {
-    otu_table <- otu_table/100
-  }
-  otu_table <- as.data.frame(otu_table)
+if (profile_param %like% 'motus') {
+  rnames <- str_extract(species_table$species, "\\[(\\S+)\\]$", group=1)
+  rnames[is.na(rnames)] <- 'Unknown'
+  rownames(species_table) <- rnames
+} else {
+  rownames(species_table) <- paste0(species_table$species)
+}
 
-  #### Taxa table
-  taxa_df <- species_table %>%
-    select(all_of(valid_ranks))
-  taxa_df <- as.data.frame(taxa_df)
+#### OTU table
+otu_table <- species_table %>%
+  select(-any_of(valid_ranks))
+if (profile_param %like% 'metaphlan') {
+  otu_table <- otu_table/100
+}
+otu_table <- as.data.frame(otu_table)
 
-  # Filter by OTUs present in the data
-  taxa_df   =   taxa_df[rowSums(otu_table)>0 | rownames(otu_table) == 'Unknown',]
-  otu_table = otu_table[rowSums(otu_table)>0 | rownames(otu_table) == 'Unknown',]
+#### Taxa table
+taxa_df <- species_table %>%
+  select(all_of(valid_ranks))
+taxa_df <- as.data.frame(taxa_df)
 
-  # Catch the edge-case in motus_raw where sample has 0 readcount for all taxa including unknown
-  # By updating its 'Unknown' to 1, we set Unknown=100% in relative abundance world
-  empty_sample = colSums(otu_table) == 0
-  otu_table[c("Unknown"), empty_sample] = 1
+# Filter by OTUs present in the data
+taxa_df   =   taxa_df[rowSums(otu_table)>0 | rownames(otu_table) == 'Unknown',]
+otu_table = otu_table[rowSums(otu_table)>0 | rownames(otu_table) == 'Unknown',]
+
+# Catch the edge-case in motus_raw where sample has 0 readcount for all taxa including unknown
+# By updating its 'Unknown' to 1, we set Unknown=100% in relative abundance world
+empty_sample = colSums(otu_table) == 0
+otu_table[c("Unknown"), empty_sample] = 1
 
 # **********************************                                             ********************************
 # **********************************          Generate phyloseq object           ********************************
@@ -196,7 +196,6 @@ profile_phyloseq <- phyloseq(otu_table(as.matrix(otu_table), taxa_are_rows = T),
 # Save taxonomic profile as phyloseq object
 saveRDS(profile_phyloseq, file = out_phyloseq)
 
-
 # Read the phyloseq object
 profile_phyloseq <- readRDS(out_phyloseq)
 
@@ -218,7 +217,7 @@ otu_table_df <- as.data.frame(unclass(otu_table(profile_phyloseq)), stringsAsFac
 # Merge taxonomy and abundance
 # The logical in arrange() puts 'Unknown' as the first row
 otu_taxa_merge <- merge(otu_table_df, taxa_table_df, by = 'taxa_ID' , all.x = T) %>%
-                    dplyr::arrange(taxa_ID != 'Unknown')
+  dplyr::arrange(taxa_ID != 'Unknown')
 
 # Write output
 fwrite(otu_taxa_merge, file = paste0(out_dir, '/', profile_param, ".tsv"), sep = '\t', row.names = F, quote = F)
@@ -226,7 +225,7 @@ fwrite(otu_taxa_merge, file = paste0(out_dir, '/', profile_param, ".tsv"), sep =
 # Convert to relative abundance if necessary
 # From now on, phyloseq object is only in RA mode
 if (profile_param %like% 'motus_raw') {
-    profile_phyloseq <-transform_sample_counts(profile_phyloseq, function(x){x/sum(x)})
+  profile_phyloseq <-transform_sample_counts(profile_phyloseq, function(x){x/sum(x)})
 }
 
 # Remove 'Unknown'
@@ -340,9 +339,9 @@ top_taxa_df <- otu_taxa_metadata %>%
   dplyr::mutate(taxon = if_else(taxon %in% c(top_taxa_list, "Unknown"), taxon, "Other"))
 
 top_taxa_df_grouped_summed <- data.frame(top_taxa_df %>% 
-                                            dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>% 
-                                            dplyr::summarise(RA_count = sum(value), .groups="drop_last") %>%
-                                            ungroup())
+                                           dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>% 
+                                           dplyr::summarise(RA_count = sum(value), .groups="drop_last") %>%
+                                           ungroup())
 
 top_taxa_df_grouped_summed$taxon<- factor(top_taxa_df_grouped_summed$taxon, levels = rev(c(top_taxa_list, 'Other', 'Unknown')))
 #variables = unique(otu_taxa_metadata$species[order(-otu_taxa_metadata$value)])
@@ -367,25 +366,25 @@ pdf_size <- max(round(n_factor * 0.55, 0), 15)
 print(paste(pdf_size, "15top"))
 pdf(out_name,width=pdf_size * 0.80,height=pdf_size,paper="special" )
 plot_genera_out <- ggplot(data=top_taxa_df_grouped_summed, aes(x = as.factor(.data[[sample_var]]), group = taxon)) +
-        geom_bar(aes(y=RA_count, fill = taxon), stat="identity", alpha=.7) +
-        theme_minimal() + 
-        theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) + 
-        labs(x = "Samples", y = "Relative abundance") +
-        theme(title = element_text(size = 10),
-              axis.text.x = element_text(color = "grey20", size = 10, angle = 60, hjust = 1.00, vjust = 1.00, face = "plain"),
-              axis.text.y = element_text(color = "grey20", size = 10, angle = 00, hjust = 1.00, vjust = 0.00, face = "plain"),
-              axis.title.x = element_text(color = "grey20", size = 12, angle = 00, hjust = 0.5, vjust = 1.0, face = "plain"),
-              axis.title.y = element_text(color = "grey20", size = 12, angle = 90, hjust = 0.5, vjust = 0.5, face = "plain"), 
-              panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
-              ) +
-        guides(fill=guide_legend(ncol= 1)) +
-#        theme(panel.margin.y = unit(0, "lines")) +
-        scale_fill_manual(values = colors_kit, name=paste0("Top ", num_taxa, " taxa (", req_rank, ")"))
+  geom_bar(aes(y=RA_count, fill = taxon), stat="identity", alpha=.7) +
+  theme_minimal() + 
+  theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) + 
+  labs(x = "Samples", y = "Relative abundance") +
+  theme(title = element_text(size = 10),
+        axis.text.x = element_text(color = "grey20", size = 10, angle = 60, hjust = 1.00, vjust = 1.00, face = "plain"),
+        axis.text.y = element_text(color = "grey20", size = 10, angle = 00, hjust = 1.00, vjust = 0.00, face = "plain"),
+        axis.title.x = element_text(color = "grey20", size = 12, angle = 00, hjust = 0.5, vjust = 1.0, face = "plain"),
+        axis.title.y = element_text(color = "grey20", size = 12, angle = 90, hjust = 0.5, vjust = 0.5, face = "plain"), 
+        panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+  ) +
+  guides(fill=guide_legend(ncol= 1)) +
+  #        theme(panel.margin.y = unit(0, "lines")) +
+  scale_fill_manual(values = colors_kit, name=paste0("Top ", num_taxa, " taxa (", req_rank, ")"))
 
 if (!is.null(factor2)) {
-    plot_genera_out <- plot_genera_out + facet_grid(as.formula(paste(factor, "~", factor2)), scales = "free")
+  plot_genera_out <- plot_genera_out + facet_grid(as.formula(paste(factor, "~", factor2)), scales = "free")
 } else {
-    plot_genera_out <- plot_genera_out + facet_wrap(as.formula(paste(factor, "~", ".")), ncol = 5, scales = "free")
+  plot_genera_out <- plot_genera_out + facet_wrap(as.formula(paste(factor, "~", ".")), ncol = 5, scales = "free")
 }
 print(plot_genera_out)
 dev.off()
@@ -410,40 +409,40 @@ pdf_size <- max(round(n_facet_row * 1.8, 0), 10)
 pdf(out_name, width=pdf_size, height=pdf_size, paper="special" )
 
 if (!is.null(opt$time)) {
-    group_var = if (!is.null(factor2)) factor2 else factor
-    richness_plot <-ggplot(data=richness_df, aes(x=.data[[opt$time]], y=richness, group=.data[[group_var]])) +
-                        geom_line(aes(color=.data[[group_var]])) +
-                        geom_point() +
-                        ylim(0, NA) +
-                        theme(legend.position = "top") +
-                        theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
-                        labs(x = opt$time, y = paste(req_rank, " richness")) +
-                        theme(title = element_text(size = 10),
-                              panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
-                            ) +
-                        facet_wrap(as.formula(paste(".", "~", factor)), scales = "free_x")
+  group_var = if (!is.null(factor2)) factor2 else factor
+  richness_plot <-ggplot(data=richness_df, aes(x=.data[[opt$time]], y=richness, group=.data[[group_var]])) +
+    geom_line(aes(color=.data[[group_var]])) +
+    geom_point() +
+    ylim(0, NA) +
+    theme(legend.position = "top") +
+    theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
+    labs(x = opt$time, y = paste(req_rank, " richness")) +
+    theme(title = element_text(size = 10),
+          panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+    ) +
+    facet_wrap(as.formula(paste(".", "~", factor)), scales = "free_x")
 } else if (!is.null(factor2)) {
-    richness_plot <-ggplot(data=richness_df, aes(x=.data[[factor]], y=richness, group=.data[[factor2]])) +
-                        geom_line(aes(color=.data[[factor2]])) +
-                        geom_point() +
-                        ylim(0, NA) +
-                        theme(legend.position = "top") +
-                        theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
-                        labs(x = factor, y = paste(req_rank, " richness")) +
-                        theme(title = element_text(size = 10),
-                              panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
-                            )
+  richness_plot <-ggplot(data=richness_df, aes(x=.data[[factor]], y=richness, group=.data[[factor2]])) +
+    geom_line(aes(color=.data[[factor2]])) +
+    geom_point() +
+    ylim(0, NA) +
+    theme(legend.position = "top") +
+    theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
+    labs(x = factor, y = paste(req_rank, " richness")) +
+    theme(title = element_text(size = 10),
+          panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+    )
 } else {
-    richness_plot <-ggplot(data=richness_df, aes(x=.data[[factor]], y=richness)) +
-                        geom_boxplot() +
-                        geom_point() +
-                        ylim(0, NA) +
-                        theme(legend.position = "top") +
-                        theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
-                        labs(x = factor, y = paste(req_rank, " richness")) +
-                        theme(title = element_text(size = 10),
-                              panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
-                            ) 
+  richness_plot <-ggplot(data=richness_df, aes(x=.data[[factor]], y=richness)) +
+    geom_boxplot() +
+    geom_point() +
+    ylim(0, NA) +
+    theme(legend.position = "top") +
+    theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
+    labs(x = factor, y = paste(req_rank, " richness")) +
+    theme(title = element_text(size = 10),
+          panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+    ) 
 }
 print(richness_plot)
 dev.off()
