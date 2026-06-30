@@ -63,33 +63,47 @@ set.seed(1234)
 
 ##########################  ** Function - PCoA **  ########################## 
 plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #out_name,title_name,
-  label2 <- noquote(label)
-  #### PCoA
+
+  # Create the ordination object
   my_physeq = subset_taxa(data_phyloseq, kingdom != 'Unknown')
-  ord<- ordinate(my_physeq, method = "PCoA", distance = distance_lab)
-  PcoA_Sample_site_abundance <- plot_ordination(my_physeq, ord, color = color, shape = as.factor(shape), label = label) #type = type,
-  PcoA_Sample_site_abundance <- PcoA_Sample_site_abundance +
-    ggtitle(title_name, distance_lab)  +
-    geom_point(size = 2.5) +
-    theme_bw() +
-    theme(legend.position = "top")
-  PcoA_Sample_site_abundance$layers[[1]] <- NULL
-  PcoA_Sample_site_abundance$layers[[2]] <- NULL
-  PcoA_Sample_site_abundance$layers[[3]] <- NULL
-  PcoA_Sample_site_abundance_2<- PcoA_Sample_site_abundance +
-    geom_text_repel(aes(label = get(label)), 
-                          size = 3.0, 
-                          segment.alpha = 0.5, 
-                          max.overlaps = getOption("ggrepel.max.overlaps", default = 20)
-                    )
-  if (!is.null(shape)) {
-    PcoA_Sample_site_abundance_2 <- PcoA_Sample_site_abundance_2 + geom_point(aes(shape = as.factor(get(shape))), size = 2) +
-      scale_shape_manual(values=c(0:25))
-  } else {
-    PcoA_Sample_site_abundance_2 <- PcoA_Sample_site_abundance_2 + geom_point(shape = 16, size = 2)
+  ord <- ordinate(my_physeq, method = "PCoA", distance = distance_lab)
+  p <- plot_ordination(my_physeq, ord, color = color, shape = shape, label = label)
+
+  # Keep the ordination object/axis labels, but remove phyloseq's default layers
+  p$layers <- list()
+  
+  # Set shape/color aesthetics
+  point_aes <- ggplot2::aes()
+  
+  if (!is.null(color)) {
+    point_aes$colour <- rlang::sym(color)
   }
-  PcoA_Sample_site_abundance_2$layers[[1]] <- NULL
-  return(PcoA_Sample_site_abundance_2)
+  
+  if (!is.null(shape)) {
+    point_aes$shape <- rlang::sym(shape)
+  }
+  
+  # Plot
+  p <- p +
+    ggplot2::geom_point(
+      mapping = point_aes,
+      size = 2
+    ) +
+    ggrepel::geom_text_repel(
+      ggplot2::aes(label = .data[[label]]),
+      size = 3.0,
+      segment.alpha = 0.5
+    ) +
+    ggplot2::ggtitle(title_name, distance_lab) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "top")
+  
+  # Add shapes
+  if (!is.null(shape)) {
+    p <- p + ggplot2::scale_shape_manual(values = c(16:18, 15, 21:25, 0:14))
+  }
+  
+  return(p)
 }
 
 # Generate phyloseq object - metaphlan/mOTUs3 output ####
