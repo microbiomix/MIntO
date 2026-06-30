@@ -160,15 +160,12 @@ profile_phyloseq <- readRDS(out_phyloseq)
 sample_data_df <- data.frame(sample_data(profile_phyloseq), stringsAsFactors = F)
 
 ### OTUs - db
-taxa_table_df <- as.data.frame(unclass(tax_table(profile_phyloseq)), stringsAsFactors = F)
-taxa_table_df$taxa_ID <- rownames(taxa_table_df)
-rownames(taxa_table_df) <- NULL
+taxa_table_df <- as.data.frame(unclass(tax_table(profile_phyloseq)), stringsAsFactors = F) %>%
+  tibble::rownames_to_column("taxa_ID")
 
 ### Counts
-otu_table_df <- as.data.frame(unclass(otu_table(profile_phyloseq)), stringsAsFactors = F)
-
-otu_table_df$taxa_ID <- rownames(otu_table_df)
-rownames(otu_table_df) <- NULL
+otu_table_df <- as.data.frame(unclass(otu_table(profile_phyloseq)), stringsAsFactors = F) %>%
+  tibble::rownames_to_column("taxa_ID")
 
 ##########################################
 # Output 1: Merged profile file with abundance and taxonomic annotation
@@ -194,9 +191,8 @@ profile_phyloseq = subset_taxa(profile_phyloseq, kingdom != 'Unknown')
 # Remove samples without taxa
 profile_phyloseq <- prune_samples(sample_sums(profile_phyloseq)>0, profile_phyloseq)
 
-otu_table_df <- as.data.frame(unclass(otu_table(profile_phyloseq)), stringsAsFactors = F)
-otu_table_df$taxa_ID <- rownames(otu_table_df)
-rownames(otu_table_df) <- NULL
+otu_table_df <- as.data.frame(unclass(otu_table(profile_phyloseq)), stringsAsFactors = F) %>%
+  tibble::rownames_to_column("taxa_ID")
 
 ##########################################
 # Output 2: Beta diversity - PCoA
