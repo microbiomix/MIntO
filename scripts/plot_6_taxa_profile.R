@@ -41,6 +41,13 @@ req_rank = opt$taxrank
 num_taxa = opt$toptaxcount
 out_phyloseq = paste0(out_dir, '/', profile_param,'.phyloseq.rds')
 
+# Validate rank request
+valid_ranks <- c("kingdom", "phylum", "class", "order", "family", "genus", "species")
+if (!req_rank %in% valid_ranks) {
+  stop("Invalid --taxrank: ", req_rank,
+       ". Must be one of: ", paste(valid_ranks, collapse = ", "))
+}
+
 # Load libraries
 library(data.table)
 library(dplyr)
@@ -93,7 +100,11 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
     filter(!grepl('t__', clade_name)) %>%
     mutate(across('clade_name', \(x) str_replace(x, 'Unknown', paste(rep('Unknown', 7), collapse='|')))) %>%
     mutate(across('clade_name', \(x) str_replace_all(x, '[kpcofgs]__', ''))) %>%
-    tidyr::separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species"), "[\\|]") %>%
+    tidyr::separate(clade_name,
+                    into = valid_ranks,
+                    sep = "[\\|]",
+                    fill = "right",
+                    extra = "drop") %>%
     mutate_all(~replace_na(., "Unknown"))
 
   if (profile_param %like% 'motus') {
@@ -106,7 +117,7 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
 
   #### OTU table
   otu_table <- species_table %>%
-    select(-c("kingdom", "phylum", "class", "order", "family", "genus", "species"))
+    select(-any_of(valid_ranks))
   if (profile_param %like% 'metaphlan') {
     otu_table <- otu_table/100
   }
@@ -114,7 +125,7 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
 
   #### Taxa table
   taxa_df <- species_table %>%
-    select(c("kingdom", "phylum", "class", "order", "family", "genus", "species"))
+    select(all_of(valid_ranks))
   taxa_df <- as.data.frame(taxa_df)
 
   # Filter by OTUs present in the data
