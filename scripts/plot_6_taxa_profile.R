@@ -131,15 +131,32 @@ plot_PCoA <- function(distance_lab, data_phyloseq, color, label, shape=NULL){ #o
 # **********************************                                             ********************************
 
 # # Metadata
-if (is.null(metadata_file)) {
-  metadata_df <- data.frame(sample=names(otu_table), factor='default', sample_alias=names(otu_table))
-  names(metadata_df)[2] <- factor
-} else{
-  metadata_df <- as.data.frame(fread(metadata_file,  header = T), stringsAsFactors = F)
+metadata_df <- as.data.frame(fread(metadata_file,  header = T), stringsAsFactors = F)
+abund_samples <- colnames(otu_table)
+missing_meta <- setdiff(abund_samples, metadata_df$sample)
+if (length(missing_meta) > 0) {
+  stop("Samples missing from metadata: ", paste(missing_meta, collapse = ", "))
 }
-samp <- sample_data(metadata_df)
-rownames(samp) <- samp$sample
+metadata_df <- metadata_df[match(abund_samples, metadata_df$sample), , drop = FALSE]
+rownames(metadata_df) <- metadata_df$sample
 
+# Validate metadata
+if (!"sample" %in% names(metadata_df)) {
+  stop("metadata must contain a 'sample' column")
+}
+if (anyDuplicated(metadata_df$sample)) {
+  stop("Duplicate sample IDs in metadata: ",
+       paste(unique(metadata_df$sample[duplicated(metadata_df$sample)]), collapse = ", "))
+}
+if (!factor %in% names(metadata_df)) {
+  stop("--factor column not found in metadata: ", factor)
+}
+if (!is.null(factor2) && !factor2 %in% names(metadata_df)) {
+  stop("--factor2 column not found in metadata: ", factor2)
+}
+if (!is.null(opt$time) && !opt$time %in% names(metadata_df)) {
+  stop("--time column not found in metadata: ", opt$time)
+}
 
 # estimating number of facets/grids for pdf sizing
 n_factor <- length(unique(metadata_df[[factor]]))
@@ -149,10 +166,7 @@ if (!is.null(factor2)) {
 n_facet_row <- ceiling(n_factor / 10)
 
 # phyloseq object
-profile_phyloseq <- phyloseq(otu_table(as.matrix(otu_table), taxa_are_rows = T), tax_table(as.matrix(taxa_df)), samp)
-
-#head(tax_table(profile_phyloseq))
-#head(taxa_names(profile_phyloseq))
+profile_phyloseq <- phyloseq(otu_table(as.matrix(otu_table), taxa_are_rows = T), tax_table(as.matrix(taxa_df)), sample_data(metadata_df))
 
 # Save taxonomic profile as phyloseq object
 saveRDS(profile_phyloseq, file = out_phyloseq)
