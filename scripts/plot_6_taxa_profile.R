@@ -19,10 +19,17 @@ option_list = list(
                 make_option(c("--factor"),   type="character", default=NULL, help="name of key factor from metadata file", metavar="character"),
                 make_option(c("--factor2"),  type="character", default=NULL, help="name of 2nd factor from metadata file", metavar="character"),
                 make_option(c("--time"),     type="character", default=NULL, help="name of time variable from metadata file", metavar="character"),
+                make_option(c("--taxrank"),  type="character", default="genus", help="taxonomic rank for plotting top taxa", metavar="character"),
+                make_option(c("--toptaxcount"), type="integer", default=15, help="number of top taxa at this rank to plot", metavar="character"),
                 make_option(c("--outdir"),   type="character", default=NULL, help="output directory", metavar="character")
                 )
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
+
+if (any(is.null(c(opt$table, opt$profiler, opt$metadata, opt$factor, opt$outdir)))) {
+  print_help(opt_parser)
+  stop("Missing required arguments\n", call.=FALSE)
+}
 
 profile_file = opt$table
 profile_param = opt$profiler
@@ -30,12 +37,9 @@ out_dir = opt$outdir
 metadata_file = opt$metadata
 factor = opt$factor
 factor2 = opt$factor2
+req_rank = opt$taxrank
+num_taxa = opt$toptaxcount
 out_phyloseq = paste0(out_dir, '/', profile_param,'.phyloseq.rds')
-
-if (any(is.null(c(opt$table, opt$profiler, opt$metadata, opt$factor, opt$outdir)))) {
-  print_help(opt_parser)
-  stop("Missing required arguments\n", call.=FALSE)
-}
 
 # Load libraries
 library(data.table)
@@ -358,7 +362,7 @@ if (!is.null(opt$time)) {
                         ylim(0, NA) +
                         theme(legend.position = "top") +
                         theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
-                        labs(x = opt$time, y = "Richness") +
+                        labs(x = opt$time, y = paste(req_rank, " richness")) +
                         theme(title = element_text(size = 10),
                               panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
                             ) +
@@ -370,7 +374,7 @@ if (!is.null(opt$time)) {
                         ylim(0, NA) +
                         theme(legend.position = "top") +
                         theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
-                        labs(x = opt$factor, y = "Richness") +
+                        labs(x = factor, y = paste(req_rank, " richness")) +
                         theme(title = element_text(size = 10),
                               panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
                             )
@@ -381,7 +385,7 @@ if (!is.null(opt$time)) {
                         ylim(0, NA) +
                         theme(legend.position = "top") +
                         theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) +
-                        labs(x = opt$factor, y = "Richness") +
+                        labs(x = factor, y = paste(req_rank, " richness")) +
                         theme(title = element_text(size = 10),
                               panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
                             ) 
