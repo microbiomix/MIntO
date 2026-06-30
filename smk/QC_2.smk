@@ -200,7 +200,7 @@ def taxonomy_plot_output():
                 wd = working_dir,
                 omics = omics,
                 taxonomy = taxonomies_versioned),
-            expand("{wd}/output/6-taxa_profile/{omics}.{taxonomy}.Top15genera.pdf",
+            expand("{wd}/output/6-taxa_profile/{omics}.{taxonomy}.genus.top15.pdf",
                 wd = working_dir,
                 omics = omics,
                 taxonomy = taxonomies_versioned)]
@@ -795,7 +795,8 @@ rule plot_taxonomic_profile:
     output:
         profile="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.tsv",
         pcoa="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.PCoA.Bray_Curtis.pdf",
-        barplot="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.Top15genera.pdf",
+        barplot="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.genus.top15.pdf",
+        richness="{wd}/output/6-taxa_profile/{omics}.{taxonomy}.{version}.genus.richness.pdf",
     wildcard_constraints:
         taxonomy = r'motus_(raw|rel)|metaphlan'
     params:
@@ -808,7 +809,14 @@ rule plot_taxonomic_profile:
     shell:
         """
         time (
-            Rscript {script_dir}/plot_6_taxa_profile.R --table {input.merged} --profiler {wildcards.omics}.{wildcards.taxonomy}.{wildcards.version} --metadata {metadata} --outdir $(dirname {output.pcoa}) {params.plot_args}
+            Rscript {script_dir}/plot_6_taxa_profile.R \
+                    --table {input.merged} \
+                    --profiler {wildcards.omics}.{wildcards.taxonomy}.{wildcards.version} \
+                    --metadata {metadata} \
+                    --outdir $(dirname {output.pcoa}) \
+                    --taxrank genus \
+                    --toptaxcount 15 \
+                    {params.plot_args}
         ) >& {log}
         """
 

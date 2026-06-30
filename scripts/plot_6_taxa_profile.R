@@ -323,7 +323,7 @@ if (num_taxa <= 15) {
                       length.out = num_taxa))
 }
 
-out_name <- paste0(out_dir, '/', profile_param, '.Top15genera.pdf')
+out_name <- paste0(out_dir, '/', profile_param, '.', req_rank, '.', 'top', num_taxa, '.pdf')
 pdf_size <- max(round(n_factor * 0.55, 0), 15)
 print(paste(pdf_size, "15top"))
 pdf(out_name,width=pdf_size * 0.80,height=pdf_size,paper="special" )
@@ -366,7 +366,7 @@ richness_df <- otu_taxa_metadata %>%
   dplyr::summarize(richness = n(), .groups="drop")
 
 # Plot
-out_name <- paste0(out_dir, '/', profile_param, '.richness.pdf')
+out_name <- paste0(out_dir, '/', profile_param, '.', req_rank, '.richness.pdf')
 pdf_size <- max(round(n_facet_row * 1.8, 0), 10)
 pdf(out_name, width=pdf_size, height=pdf_size, paper="special" )
 
