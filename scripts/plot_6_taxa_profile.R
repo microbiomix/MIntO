@@ -278,7 +278,13 @@ if (length(unique(metadata_df[[factor]]))>1) {
   rownames(metadata_df) <- metadata_df$sample
   metadata <-metadata_df[match(names(otu_table), rownames(metadata_df)),]
   dist <- as.dist(vegdist(t(otu_table), method="bray", na.rm = T))
-  adonis_bray_Status<-adonis2(as.formula(paste("dist", "~", factor)), data = metadata)
+  
+  # Create the formula safely and run permanova
+  adonis_formula <- stats::as.formula(
+    paste0("dist ~ `", factor, "`")
+  )
+  adonis_bray_Status <- vegan::adonis2(adonis_formula, data = metadata)
+  
   r2_value <- format(round(adonis_bray_Status$R2[1],3), nsmall = 3)
   p_value <- adonis_bray_Status$`Pr(>F)`[1]
   
