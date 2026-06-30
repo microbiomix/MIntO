@@ -248,8 +248,15 @@ print(plot_PCoA_out  +
 dev.off()
 
 ##########################################
-# Output 3: Barchart - Top 15 genera
+# Some common elements for top taxa and richness
 ##########################################
+
+# Plot variables
+sample_var <- if (!is.null(opt$time)) opt$time else "sample"
+group_by_vars <- c(factor, sample_var) 
+if (!is.null(factor2)) {
+  group_by_vars <- c(factor, factor2, sample_var) 
+}
 
 # # Prevalence 10% 
 # otu_taxa_filt_df = otu_taxa_merge[rowSums(otu_taxa_merge[, 2:ncol(otu_table_df)])>0.01,]
@@ -262,57 +269,65 @@ dev.off()
 # otu_taxa_filt_df[is.na(otu_taxa_filt_df)] <- '-1'
 
 otu_taxa_melt <- reshape2::melt(otu_table_df, id.vars=c("taxa_ID"))
+taxa_table_df <- taxa_table_df %>%
+  dplyr::select(taxa_ID, any_of(req_rank))
 otu_taxa_melt <- merge(taxa_table_df, otu_taxa_melt, by="taxa_ID")
-#colnames(otu_taxa_melt) <- c('taxa_ID', "kingdom", "phylum", "class", "order", "family", "genus", "mOTU", "short_name", "sample", "RA")
 
-otu_taxa_metadata =  merge(sample_data_df, otu_taxa_melt, by.x = 'sample', by.y = 'variable')
+otu_taxa_metadata <-  merge(sample_data_df, otu_taxa_melt, by.x = 'sample', by.y = 'variable') %>%
+  dplyr::rename(all_of(c(taxon = req_rank))) %>%
+  dplyr::mutate(value = as.numeric(value))
 
-otu_taxa_metadata$value <- as.numeric(otu_taxa_metadata$value)
-otu_taxa_metadata_top15_df <- data.frame(otu_taxa_metadata %>% 
-                                     dplyr::group_by(genus) %>% 
-                                     dplyr::summarise(RA_count = sum(value)) %>% 
-                                     dplyr::arrange(desc(RA_count))) 
+##########################################
+# Output 3: Barchart - Top N taxa
+##########################################
 
-otu_taxa_metadata_top15_list = otu_taxa_metadata_top15_df$genus[1:16]
-otu_taxa_metadata_top15_list <- otu_taxa_metadata_top15_list[otu_taxa_metadata_top15_list != "Unknown"][1:15]
-#otu_taxa_metadata_top15_list <- gsub('(.*)\\[(.*)\\]', "\\2", otu_taxa_metadata_top15_list)
+# Get a list of top N taxa
+top_taxa_list <- otu_taxa_metadata %>% 
+  dplyr::filter(taxon != "Unknown") %>% 
+  dplyr::group_by(taxon) %>% 
+  dplyr::summarise(RA_count = sum(value)) %>% 
+  dplyr::slice_min(order_by = tibble(-RA_count), n = num_taxa, with_ties = FALSE) %>%
+  dplyr::select(taxon) %>%
+  pull()
 
-otu_taxa_metadata_top15 <- otu_taxa_metadata
-otu_taxa_metadata_top15$genus[!otu_taxa_metadata_top15$genus %in% c(otu_taxa_metadata_top15_list, "Unknown")] <- 'Other'
-otu_taxa_metadata_top15$genus[is.na(otu_taxa_metadata_top15$genus)] <- 'Other'
+# Consolidate all taxa not in top N into "Other" category (except "Unknown")
+top_taxa_df <- otu_taxa_metadata %>%
+  dplyr::mutate(taxon = if_else(taxon %in% c(top_taxa_list, "Unknown"), taxon, "Other"))
 
-# Plot
-sample_var <- if (!is.null(opt$time)) opt$time else "sample"
-group_by_vars <- c(opt$factor, sample_var) 
-if (!is.null(opt$factor2)) {
-    group_by_vars <- c(opt$factor, opt$factor2, sample_var) 
-}
-otu_taxa_metadata_top15_sum <- data.frame(otu_taxa_metadata_top15 %>% 
-                                            dplyr::group_by(across(all_of(group_by_vars)), genus, sample) %>% 
+top_taxa_df_grouped_summed <- data.frame(top_taxa_df %>% 
+                                            dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>% 
                                             dplyr::summarise(RA_count = sum(value), .groups="drop_last") %>%
                                             ungroup())
 if (!is.null(opt$time)){
-  otu_taxa_metadata_top15_sum <- otu_taxa_metadata_top15_sum %>% 
-    dplyr::group_by(across(all_of(group_by_vars)), genus, sample) %>%
+  top_taxa_df_grouped_summed <- top_taxa_df_grouped_summed %>% 
+    dplyr::group_by(across(all_of(group_by_vars)), taxon, sample) %>%
     dplyr::summarise(RA_count = mean(RA_count), .groups="drop_last")
 }
 
-
-otu_taxa_metadata_top15_sum$genus<- factor(otu_taxa_metadata_top15_sum$genus, levels = rev(c(otu_taxa_metadata_top15_list, 'Other', 'Unknown')))
+top_taxa_df_grouped_summed$taxon<- factor(top_taxa_df_grouped_summed$taxon, levels = rev(c(top_taxa_list, 'Other', 'Unknown')))
 #variables = unique(otu_taxa_metadata$species[order(-otu_taxa_metadata$value)])
 #otu_taxa_metadata$species<- factor(otu_taxa_metadata$species, levels = variables)
 
-colors_kit<-c('#D8DCDE', '#B6D0E0',
-              '#9D0208','#FFC87E','#F4A261','#E34F33','#E9C46A',
-              '#A786C9','#D4C0E2','#975773','#6699FF','#000066',
-              '#7AAFCA','#006699','#A9D181','#2F8475','#264445')
+colors_kit <- c('#D8DCDE', '#B6D0E0')
+if (num_taxa <= 15) {
+  colors_kit <- c(colors_kit,
+                  '#9D0208','#FFC87E','#F4A261','#E34F33','#E9C46A',
+                  '#A786C9','#D4C0E2','#975773','#6699FF','#000066',
+                  '#7AAFCA','#006699','#A9D181','#2F8475','#264445')
+} else {
+  colors_kit <- c(colors_kit,
+                  rep(c('#9D0208','#FFC87E','#F4A261','#E34F33','#E9C46A',
+                        '#A786C9','#D4C0E2','#975773','#6699FF','#000066',
+                        '#7AAFCA','#006699','#A9D181','#2F8475','#264445'),
+                      length.out = num_taxa))
+}
 
 out_name <- paste0(out_dir, '/', profile_param, '.Top15genera.pdf')
 pdf_size <- max(round(n_factor * 0.55, 0), 15)
 print(paste(pdf_size, "15top"))
 pdf(out_name,width=pdf_size * 0.80,height=pdf_size,paper="special" )
-plot_genera_out <- ggplot(data=otu_taxa_metadata_top15_sum, aes(x = as.factor(.data[[sample_var]]), group = genus)) +
-        geom_bar(aes(y=RA_count, fill = genus), stat="identity", alpha=.7) +
+plot_genera_out <- ggplot(data=top_taxa_df_grouped_summed, aes(x = as.factor(.data[[sample_var]]), group = taxon)) +
+        geom_bar(aes(y=RA_count, fill = taxon), stat="identity", alpha=.7) +
         theme_minimal() + 
         theme(axis.text = element_text(size = 8), panel.grid.minor = element_blank()) + 
         labs(x = "Samples", y = "Relative abundance") +
@@ -325,7 +340,7 @@ plot_genera_out <- ggplot(data=otu_taxa_metadata_top15_sum, aes(x = as.factor(.d
               ) +
         guides(fill=guide_legend(ncol= 1)) +
 #        theme(panel.margin.y = unit(0, "lines")) +
-        scale_fill_manual(values = colors_kit, name="Top 15 genera")
+        scale_fill_manual(values = colors_kit, name=paste0("Top ", num_taxa, " taxa (", req_rank, ")"))
 
 if (!is.null(factor2)) {
     plot_genera_out <- plot_genera_out + facet_grid(as.formula(paste(factor, "~", factor2)), scales = "free")
@@ -340,14 +355,14 @@ dev.off()
 ##########################################
 
 # Remove Unknown/Unassigned
-richness_df <- filter(otu_table_df, taxa_ID != "Unknown")
-
-# Make df
-richness_df <- as.data.frame(colSums(richness_df>0, na.rm = TRUE))
-names(richness_df) <- c("richness")
-richness_df["sample"] <- row.names(richness_df)
-richness_df <- inner_join(richness_df, sample_data_df, by="sample")
-
+# Count taxa with abundance > 0
+# Merge with metadata
+richness_df <- otu_taxa_metadata %>%
+  dplyr::filter(taxon != "Unknown", value > 0) %>%
+  dplyr::group_by(across(all_of(group_by_vars)), sample, taxon) %>%
+  dplyr::summarise(cumulative = sum(value), .groups="keep") %>%
+  dplyr::group_by(across(all_of(group_by_vars)), sample) %>%
+  dplyr::summarize(richness = n(), .groups="drop")
 
 # Plot
 out_name <- paste0(out_dir, '/', profile_param, '.richness.pdf')
